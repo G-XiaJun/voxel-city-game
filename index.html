@@ -1,0 +1,4955 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>体素拆迁办 · Voxel Demolition</title>
+<style>
+  /* ===== 基础 ===== */
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { width:100%; height:100%; overflow:hidden; background:#0b0f16; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+    color:#e8f0ff; -webkit-font-smoothing:antialiased;
+    user-select:none; cursor:none;
+  }
+  canvas { display:block; }
+
+  /* ===== HUD 容器 ===== */
+  #hud { position:fixed; inset:0; pointer-events:none; z-index:10; }
+
+  /* 顶部状态条 */
+  .topbar {
+    position:absolute; top:14px; left:50%; transform:translateX(-50%);
+    display:flex; gap:10px; align-items:stretch;
+  }
+  .stat {
+    background:rgba(10,16,28,.62);
+    border:1px solid rgba(120,180,255,.22);
+    border-radius:10px;
+    padding:7px 14px 8px;
+    min-width:96px;
+    backdrop-filter: blur(8px);
+    box-shadow:0 4px 18px rgba(0,0,0,.35);
+  }
+  .stat .k {
+    font-size:10px; letter-spacing:.14em; text-transform:uppercase;
+    color:#6f8cb0; font-weight:600; margin-bottom:2px; white-space:nowrap;
+  }
+  .stat .v {
+    font-size:19px; font-weight:700; font-variant-numeric:tabular-nums;
+    line-height:1.05; letter-spacing:.01em; white-space:nowrap;
+  }
+  .stat .v small { font-size:11px; font-weight:600; opacity:.5; margin-left:2px; }
+  .v-hot  { color:#ff8a4c; }
+  .v-blue { color:#68b8ff; }
+  .v-teal { color:#4fe0c0; }
+  .v-gray { color:#c8d6ea; }
+
+  /* 性能条 */
+  #perf { position:absolute; top:14px; left:14px;
+    background:rgba(10,16,28,.62); border:1px solid rgba(120,180,255,.22);
+    border-radius:10px; padding:7px 12px; backdrop-filter:blur(8px);
+    font-size:11px; font-variant-numeric:tabular-nums; line-height:1.6; min-width:132px;
+    box-shadow:0 4px 18px rgba(0,0,0,.35);
+  }
+  #perf .row { display:flex; justify-content:space-between; gap:12px; }
+  #perf .lbl { color:#6f8cb0; letter-spacing:.06em; }
+  #perf .num { font-weight:600; }
+  .bar { height:3px; border-radius:2px; background:rgba(255,255,255,.09); margin-top:5px; overflow:hidden; }
+  .bar > i { display:block; height:100%; width:0%; background:linear-gradient(90deg,#4fe0c0,#68b8ff); transition:width .25s; }
+  .bar.warn > i { background:linear-gradient(90deg,#ffb03a,#ff6b3a); }
+
+  /* 准星 */
+  #crosshair {
+    position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
+    width:40px; height:40px; opacity:.95;
+    transition: transform .07s ease-out;
+  }
+  #crosshair.snap { transform:translate(-50%,-50%) scale(1.22); }
+
+  /* 冷却提示（准星下方） */
+  #cdWrap {
+    position:absolute; left:50%; top:50%; transform:translate(-50%, 34px);
+    display:flex; flex-direction:column; align-items:center; gap:5px;
+  }
+  #cdBar {
+    width:74px; height:4px; border-radius:2px;
+    background:rgba(255,255,255,.13); overflow:hidden;
+  }
+  #cdBar > i { display:block; height:100%; width:100%;
+    background:linear-gradient(90deg,#ffd166,#ff8a4c); transition:width .06s linear; }
+  #cdText { font-size:10.5px; letter-spacing:.14em; font-weight:700;
+    color:#ffb88a; text-shadow:0 1px 6px rgba(0,0,0,.8); opacity:0; transition:opacity .15s; }
+  #cdText.on { opacity:1; }
+
+  /* 伤害/连击飘字 */
+  #combo {
+    position:absolute; left:50%; top:calc(50% + 78px); transform:translateX(-50%);
+    font-size:13px; font-weight:700; letter-spacing:.08em; color:#ffb86b;
+    text-shadow:0 2px 10px rgba(0,0,0,.9); opacity:0; transition:opacity .3s;
+    white-space:nowrap;
+  }
+  #combo.on { opacity:1; }
+
+  /* ===== 开始 / 结束面板 ===== */
+  .overlay {
+    position:fixed; inset:0; z-index:50; display:flex;
+    align-items:center; justify-content:center;
+    background:radial-gradient(ellipse at 50% 40%, rgba(26,40,64,.86), rgba(6,9,15,.965));
+    backdrop-filter: blur(3px);
+    transition:opacity .35s;
+  }
+  .overlay.hidden { opacity:0; pointer-events:none; }
+
+  .panel {
+    width:min(660px, 92vw); max-height:88vh; overflow-y:auto;
+    background:linear-gradient(180deg, rgba(18,26,42,.97), rgba(11,16,26,.97));
+    border:1px solid rgba(120,180,255,.2);
+    border-radius:16px; padding:30px 34px 26px;
+    box-shadow:0 24px 80px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.05);
+  }
+  .panel h1 {
+    font-size:30px; font-weight:800; letter-spacing:-.01em; line-height:1.15;
+    background:linear-gradient(100deg,#ffd9a0,#ff8a4c 45%,#68b8ff);
+    -webkit-background-clip:text; background-clip:text; color:transparent;
+  }
+  .panel .sub { color:#7d93b3; font-size:12.5px; margin-top:6px; letter-spacing:.1em; }
+  .divider { height:1px; background:linear-gradient(90deg,transparent,rgba(120,180,255,.28),transparent); margin:20px 0; }
+
+  .keys { display:grid; grid-template-columns:repeat(auto-fit,minmax(146px,1fr)); gap:9px; }
+  .key {
+    display:flex; align-items:center; gap:9px;
+    background:rgba(255,255,255,.035); border:1px solid rgba(255,255,255,.07);
+    border-radius:8px; padding:9px 11px;
+  }
+  kbd {
+    display:inline-flex; align-items:center; justify-content:center;
+    min-width:26px; height:24px; padding:0 6px;
+    background:linear-gradient(180deg,#2a3852,#1b2436);
+    border:1px solid rgba(140,190,255,.3); border-bottom-width:2px;
+    border-radius:5px; font-size:11px; font-weight:700; color:#cfe2ff;
+    font-family:inherit; letter-spacing:.02em; flex-shrink:0;
+  }
+  .key span { font-size:12.5px; color:#b3c6e0; }
+
+  .tips { font-size:12.5px; line-height:1.85; color:#8fa6c4; }
+  .tips b { color:#ffb87a; font-weight:700; }
+  .tips code {
+    background:rgba(120,180,255,.12); color:#9ecbff; padding:1px 5px;
+    border-radius:4px; font-size:11.5px; font-family:ui-monospace,Consolas,monospace;
+  }
+
+  .btn {
+    display:block; width:100%; margin-top:22px; padding:15px;
+    background:linear-gradient(100deg,#ff8a4c,#ff6b3a);
+    border:none; border-radius:11px; cursor:pointer;
+    color:#fff; font-size:15.5px; font-weight:800; letter-spacing:.05em;
+    font-family:inherit;
+    box-shadow:0 8px 26px rgba(255,107,58,.36), inset 0 1px 0 rgba(255,255,255,.28);
+    transition:transform .12s, box-shadow .12s, filter .12s;
+    pointer-events:auto;
+  }
+  .btn:hover { transform:translateY(-2px); filter:brightness(1.08);
+    box-shadow:0 12px 34px rgba(255,107,58,.46), inset 0 1px 0 rgba(255,255,255,.3); }
+  .btn:active { transform:translateY(0); }
+
+  /* 结算 */
+  .scoreGrid { display:grid; grid-template-columns:repeat(3,1fr); gap:11px; margin-top:4px; }
+  .scoreCell {
+    background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.075);
+    border-radius:10px; padding:14px 12px; text-align:center;
+  }
+  .scoreCell .k { font-size:10.5px; color:#6f8cb0; letter-spacing:.13em; text-transform:uppercase; font-weight:600; }
+  .scoreCell .n { font-size:25px; font-weight:800; margin-top:6px;
+    font-variant-numeric:tabular-nums; color:#ffd9a0; }
+  #endTitle { font-size:34px; }
+  #rank { font-size:52px; font-weight:900; line-height:1;
+    background:linear-gradient(100deg,#ffd166,#ff8a4c); -webkit-background-clip:text;
+    background-clip:text; color:transparent; }
+
+  /* 命中标记 */
+  #hitmarker {
+    position:absolute; left:50%; top:50%; transform:translate(-50%,-50%) rotate(45deg);
+    width:20px; height:20px; opacity:0;
+  }
+  #hitmarker::before, #hitmarker::after {
+    content:''; position:absolute; background:#fff; border-radius:1px;
+  }
+  #hitmarker::before { left:50%; top:0; width:2px; height:7px; transform:translateX(-50%); }
+  #hitmarker::after  { bottom:0; left:50%; width:2px; height:7px; transform:translateX(-50%); }
+  #hitmarker .h { position:absolute; top:50%; width:7px; height:2px; transform:translateY(-50%); border-radius:1px; }
+  #hitmarker .h.l { left:0; } #hitmarker .h.r { right:0; }
+
+  #flash { position:fixed; inset:0; z-index:9; pointer-events:none; background:#fff; opacity:0; }
+  #vignette {
+    position:fixed; inset:0; z-index:8; pointer-events:none;
+    box-shadow: inset 0 0 200px rgba(0,0,0,.6);
+  }
+  #loading { position:fixed; inset:0; z-index:60; display:flex; align-items:center;
+    justify-content:center; flex-direction:column; gap:16px; background:#0b0f16;
+    transition:opacity .5s; }
+  #loading.hidden { opacity:0; pointer-events:none; }
+  .spinner { width:38px; height:38px; border-radius:50%;
+    border:3px solid rgba(120,180,255,.18); border-top-color:#ff8a4c;
+    animation:spin .85s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  #loadText { font-size:12.5px; color:#6f8cb0; letter-spacing:.16em; }
+  #err { position:fixed; inset:0; z-index:99; display:none; padding:40px;
+    background:#0b0f16; color:#ff9d7a; font-family:ui-monospace,Consolas,monospace;
+    font-size:13px; line-height:1.7; white-space:pre-wrap; overflow:auto; }
+</style>
+</head>
+<body>
+
+<div id="loading"><div class="spinner"></div><div id="loadText">正在生成城市…</div></div>
+<div id="err"></div>
+
+<div id="vignette"></div>
+<div id="flash"></div>
+
+<div id="hud">
+  <!-- 性能 -->
+  <div id="perf">
+    <div class="row"><span class="lbl">FPS</span><span class="num" id="pFps">--</span></div>
+    <div class="row"><span class="lbl">方块</span><span class="num" id="pVox">--</span></div>
+    <div class="row"><span class="lbl">动态物理</span><span class="num" id="pDyn">--</span></div>
+    <div class="row"><span class="lbl">建筑</span><span class="num" id="pBld">--</span></div>
+    <div class="bar" id="pBarWrap"><i id="pBar"></i></div>
+  </div>
+
+  <!-- 状态 -->
+  <div class="topbar">
+    <div class="stat"><div class="k">已摧毁方块</div><div class="v v-hot" id="sDestroyed">0</div></div>
+    <div class="stat"><div class="k">得分</div><div class="v v-teal" id="sScore">0</div></div>
+    <div class="stat"><div class="k">剩余时间</div><div class="v v-blue" id="sTime">3:00</div></div>
+    <div class="stat"><div class="k">炮弹</div><div class="v v-gray" id="sAmmo">∞</div></div>
+  </div>
+
+  <!-- 准星 -->
+  <svg id="crosshair" viewBox="0 0 40 40" fill="none">
+    <circle cx="20" cy="20" r="9.5" stroke="rgba(255,255,255,.32)" stroke-width="1.2"/>
+    <circle cx="20" cy="20" r="1.6" fill="#ff8a4c"/>
+    <path d="M20 3.5v7M20 29.5v7M3.5 20h7M29.5 20h7" stroke="rgba(255,255,255,.85)"
+          stroke-width="2" stroke-linecap="round"/>
+  </svg>
+
+  <div id="cdWrap">
+    <div id="cdText">装填中</div>
+    <div id="cdBar"><i id="cdFill"></i></div>
+  </div>
+  <div id="combo"></div>
+
+  <svg id="hitmarker" viewBox="0 0 20 20" style="position:absolute">
+    <span class="h l"></span><span class="h r"></span>
+  </svg>
+</div>
+
+<script>
+/* =========================================================================
+   依赖加载：先用动态 import() 依次尝试多个 CDN。
+   注意：动态 import() 在 file:// 下是允许的（它是对 https 的跨源请求，
+   而 <script type="module" src="./local.js"> 会被 CORS 拦死 —— 这正是
+   本文件所有代码内联在 HTML 里的原因：双击即可运行，无需本地服务器。
+   ========================================================================= */
+(function () {
+  var CDNS = [
+    { three: 'https://unpkg.com/three@0.160.0/build/three.module.js',
+      cannon: 'https://unpkg.com/cannon-es@0.20.0/dist/cannon-es.js' },
+    { three: 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js',
+      cannon: 'https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cannon-es.js' },
+    { three: 'https://esm.sh/three@0.160.0',
+      cannon: 'https://esm.sh/cannon-es@0.20.0' },
+    { three: 'https://unpkg.com/three@0.161.0/build/three.module.js',
+      cannon: 'https://unpkg.com/cannon-es@0.20.0/dist/cannon-es.js' },
+  ];
+
+  function fail(msg) {
+    var el = document.getElementById('err');
+    el.style.display = 'block';
+    el.textContent = '依赖加载失败\n\n' + msg +
+      '\n\n本游戏首次运行需要联网从 CDN 获取 Three.js 与 cannon-es。\n' +
+      '请确认网络可访问 unpkg.com / jsdelivr.net / esm.sh 后刷新页面。\n' +
+      '（已尝试 ' + CDNS.length + ' 个镜像源）';
+  }
+
+  var i = 0;
+  function tryNext() {
+    if (i >= CDNS.length) { fail('所有 CDN 均不可达。'); return; }
+    var c = CDNS[i++];
+    var txt = document.getElementById('loadText');
+    if (txt) txt.textContent = '正在加载引擎…（源 ' + i + '/' + CDNS.length + '）';
+    Promise.all([import(/* webpackIgnore: true */ c.three),
+                 import(/* webpackIgnore: true */ c.cannon)])
+      .then(function (mods) {
+        try {
+          window.__BOOT__(mods[0], mods[1]);
+        } catch (e) {
+          fail('初始化异常：' + (e && e.message) + '\n\n' + (e && e.stack));
+        }
+      })
+      .catch(function (e) {
+        console.warn('CDN ' + i + ' 失败：', e && e.message);
+        tryNext();
+      });
+  }
+  window.__CDN_FAIL = fail;
+  tryNext();
+})();
+</script>
+
+<script>
+window.__BOOT__ = function (__THREE__, __CANNON__) {
+const THREE = __THREE__, CANNON = __CANNON__;
+/* =========================================================================
+   体素拆迁办 — Voxel Demolition
+   第三人称体素城市轰炸 · Three.js r160 + cannon-es 0.20
+   ---------------------------------------------------------------------
+   设计要点：
+   · 建筑 = 体素方块堆叠。地面之上所有方块用**实例化渲染**（InstancedMesh）——
+     每栋楼 1 个 draw call，全城几十个 draw call，塞进 3 万方块也不卡。
+   · 每栋楼额外维护一份"结构图"（Uint8 三维网格），用于剔除内部不可见方块
+     （只在表面生成方块）→ 方块数量砍掉一多半。
+   · 爆炸时只把"命中球内的方块"从静态楼体摘下来，转成 flying 碎块，
+     用**对象池**复用几何/材质/刚体，数量上限 + 生命周期回收。
+   ========================================================================= */
+
+/* ------------------------------ 全局配置 ------------------------------ */
+const CFG = {
+  /* ── 体素尺度：0.34 世界单位（≈ 原 0.10 的 3.4 倍）─────────────────
+     ⚠️ 为什么从 0.40 回到 0.34（GXJ 授权自主调节）：
+        0.40 时地块能容纳的最大楼宽只有 floor(6.54/0.40) = 16 格，
+        而一个住宅立面周期是 3~4 格 —— 16 格里只排得下 4 个开间，
+        窗、阳台带、空调位挤在一起，楼看着"粗"。
+        0.34 时同样的世界尺寸容纳 19 格，开间数 +25%，
+        体素感还在（刻意保留的方块味），但立面信息量明显更足。
+        代价是体素总量约 +34%（实测 11.5 万 → 15 万），
+        仍然在 InstancedMesh 的轻松范围内。
+
+     逐条结论（改 VOXEL 时要照这张表复核）：
+       该动（世界单位的绝对值，与分辨率无关 → 保持常数）：
+         CITY_* / BLD_MIN_W / BLD_MAX_W / BLD_MIN_H / BLD_MAX_H /
+         PLAYER_R / PLAYER_H / SPEED / SPRINT / JUMP / GRAVITY /
+         CAM_DIST / CAM_HEIGHT / SHELL_SPEED / SHELL_GRAVITY / BLAST_R
+       不动（本来就是格数）：
+         makeBuilding 里的 FLOOR_H / WIN_W / WIN_GAP / PODIUM_OUT
+       ⚠️ BLD_MAX_CELLS 必须**跟着 V 反向调**：
+          它封顶的是"单栋外壳格数"，而格数 ≈ 周长×高 ≈ (1/V)² 量级。
+          V 变小 → 同尺寸的楼格数暴涨 → 不放大上限，楼会被强行削矮。
+      ⚠️ 路网（buildRoads）完全用世界单位（CELL/STREET），与 V 无关，不用动。
+     ────────────────────────────────────────────────────────────── */
+  VOXEL: 0.34,                // 单个方块边长（世界单位）→ 角色 1.9 单位 ≈ 5.6 格高
+
+  /* ── 尺度基准：**角色 ≈ 1.9 世界单位 ≈ 5 格高** ──────────────────────
+     粗颗粒模式下世界是"低分辨率"的：角色只有 5 格高，楼 30~65 格高。
+     这是刻意选的口味 —— 方块感强、削块的计数直观（一炮几十块而不是几千块），
+     而且结构坍塌、碎块飞散这类"逐块"逻辑在几十块的量级上才看得出来。
+     代价是角色不再是 19 格高的精致模型，所以角色视觉尺寸**整体缩小 0.62 倍**，
+     让他稳稳落在 5 格（2.0 单位）里面。 */
+
+  BLD_COUNT: 56,              // 建筑数量（49 个地块里挑 → 城市饱满但不窒息）
+
+  /* ── 底面宽（世界单位）─────────────────────────────────────────────
+     ⚠️⚠️ 这两个值现在**只是兜底范围**，真正的宽度由地块尺寸决定
+         （见 buildCity 里的 maxCells = floor(maxFoot / V)，maxFoot = PLOT*0.86
+          → 16 格）。所以它们只在"想手动限制某类楼"时才起作用。
+        保留它们的理由：万一 maxCells 算出来异常大（改了 CITY_CELL），
+        这里能把宽度兜回一个合理区间。 */
+  BLD_MIN_W: 4.8, BLD_MAX_W: 7.2,
+  /* 高度（世界单位）。下限从 12 降到 7 —— 上限 12/0.4 = 30 格，
+     而外围板楼的目标细长比只有 1.8（10 格宽 → 18 格高），
+     旧下限会把它们**强行拉高到 30 格**，于是"矮胖板楼"永远出不来，
+     全城都是一个高度带。降到 7（≈18 格）后外围才真的是板楼。 */
+  BLD_MIN_H: 7, BLD_MAX_H: 26,
+  /* 单栋体素上限。⚠️ 必须跟着 V 反向调（见 VOXEL 的说明）：
+     外壳格数 ≈ 2wd + 2h(w+d)，其中 w、d、h 都是"世界尺寸 / V"，
+     所以格数是 (1/V)² 量级。V 从 0.40 降到 0.34 → 同尺寸的楼格数 ×1.38，
+     上限不放大就会把楼强行削矮（削掉的是最显眼的高度）。
+     3200 → 5000 是留了约 1.6 倍余量。 */
+  BLD_MAX_CELLS: 5000,
+
+  CITY_RINGS: 3,              // 城市地块圈数（3 → 7×7=49 个地块位）
+  /* 地块边长 / 街宽（世界单位）。路面贴图的网格也按它对齐，
+     所以放在 CFG 里由地面贴图和 buildCity 共用，避免两处写死不同值。 */
+  CITY_CELL: 13.0, CITY_STREET: 5.4,
+
+  PLAYER_R: 0.42,             // 角色胶囊半径
+  PLAYER_H: 1.9,              // 角色总高
+  PLAYER_SCALE: 0.62,         // 角色视觉模型缩放（见上：5 格身高的低分辨率取舍）
+  SPEED: 11.5,                // 移动速度
+  SPRINT: 20.0,               // 冲刺速度
+  JUMP: 14.0,                 // 起跳冲量
+  GRAVITY: -34,               // 角色重力（手感向，比真实重）
+  CAM_DIST: 13.0,             // 第三人称距离
+  CAM_HEIGHT: 2.8,            // 镜头高度偏移
+  SHELL_SPEED: 95,            // 炮弹初速
+  SHELL_GRAVITY: -15,         // 炮弹重力（略降，弹道更好看）
+  COOLDOWN: 0.30,             // 开炮冷却（秒）
+  /* 爆炸削块半径（世界单位 = 10 格 @ V=0.4）。
+     ⚠️ 半径和 V 都是世界单位，所以这里**不用动** —— 但格数变了：
+        格半径 = BLAST_R / V = 7.5。所以下面那两个力常数要跟着 V 重标。 */
+  BLAST_R: 3.0,
+
+  /* ── 爆炸 / 坍塌的力（世界单位速度口径）───────────────────────────────
+     ⚠️⚠️ 这里有一个**必须记下来的坑**：我最初按"方块质量 ∝ V³"把冲量
+         乘了 64 倍（K_V），结果碎块速度做到 4700 单位/秒 —— 角色跑速才 11.5，
+         碎块一帧就飞出几百米，画面上什么都看不见，物理也直接炸掉。
+
+         错在哪：**碎块刚体的 mass 恒为 1，不随 V 变**。
+         削下来的方块用的是池子里的碎块刚体（mass: 1），
+         所以 cannon 里 `Δv = impulse / mass = impulse`。
+         要的是"速度"这个观感量，它和 V 根本不是同一维度的东西，
+         不该乘 K_V。V 变化只改变"一炮削掉几块"，不改变"每块飞多快"。
+
+         正确标定：直接按目标速度给冲量。
+           角色跑速 11.5 单位/秒 → 爆炸碎块取 20~45 单位/秒最像样。
+           公式里最近处的系数最大到 (0.55 + 1.35) = 1.9 倍，
+           所以基数取 26 → 近处 ~50、边缘 ~14，正好是"炸开"的观感区间。 */
+  BLAST_PUSH: 26,             // 碎块初速度基数（单位/秒）
+
+  /* 碎块阻尼 / 休眠：V 变大后 cannon 的接触求解稳定得多，阻尼可以调小，
+     让"炸开 → 撞地 → 弹跳 → 翻滚"看得见。
+     ⚠️ 同时 cannon 有 maxVelocity 保护（默认 1e4），速度一旦接近它就会
+        "锁死"成匀速直线，看起来像碎块不落。所以力必须标定在合理区间内，
+        不能靠调大 maxVelocity 去兜。 */
+  DEBRIS_DAMP_LIN: 0.02,      // 线性阻尼
+  DEBRIS_DAMP_ANG: 0.06,      // 角阻尼
+  DEBRIS_SLEEP_V: 0.35,       // 休眠速度阈值（越小越晚睡，堆叠更真实）
+  DEBRIS_SLEEP_T: 0.5,        // 休眠延时
+
+  MAX_FLYING: 2600,           // 飞散碎块上限（硬性）
+  /* 碎块存活 / 静置残留：
+     ⚠️ "落地后可短暂残留再消失"要的是**静置后过一会儿**才消散，
+        而不是"从出生起算 5 秒"。所以寿命拆成两段：
+          FLY_LIFE     —— 从出生起的总寿命上限（防泄漏）
+          REST_LINGER  —— 触地/静止之后**额外**保留的时间
+        实际回收时刻 = settled ? settleAt + REST_LINGER : bornAt + FLY_LIFE。
+
+     ⚠️ FLY_LIFE 曾经是 9.0 —— 那意味着没落地的碎块要在天上飞满 9 秒才开始淡出，
+        池子里始终压着一大堆"活尸"（物理照跑、实例照渲染、阴影照投）。
+        改成 3.0 之后：碎块抛出去 ~3 秒还没落地，就**在半空中逐渐消散**
+        （淡出期间位移照常更新，视觉上是"边飞边化"），这是用户明确要的表现，
+        同时也是性能优化：持续轰炸时池内活体数量大约砍半，
+        updateDebris 的逐帧矩阵刷新与 broadphase 压力同步下降。 */
+  FLY_LIFE: 1.5,              // 碎块硬寿命（秒）—— 还在飞也会半空消散（2026-09-20 用户要求再砍半）
+  REST_LINGER: 1.3,           // 静置残留（秒）—— 落地废墟短暂可见后即淡出
+  FADE_TIME: 0.65,            // 淡出耗时（秒）
+
+  /* ── 结构坍塌 ────────────────────────────────────────────────────────
+     爆炸后，被波及的楼要做一次"支撑连通性"分析：从地面（y=0）的实心格
+     出发向上下左右 flood fill，凡是**够不到地面**的实心格就是失去支撑的悬空块，
+     应当逐块坠落。为了不改动 grid 的语义（grid=1 仍然是"这里有一块实体"），
+     坍塌采用**世界内的物理模拟**：悬空块整块脱离、转成碎块往下砸，
+     落点重叠自然堆成废墟锥 —— 而不是把坐标直接写下去（那样会穿模、会陷进楼里）。
+     ────────────────────────────────────────────────────────────────── */
+  COLLAPSE: true,             // 坍塌总开关
+  COLLAPSE_MAX_PER_FRAME: 26, // 每次坍塌检查最多脱落多少块（防爆池 + 防卡帧）
+  COLLAPSE_EXIT: 3.5,         // 脱落块的初始水平散开速度（单位/秒）
+  COLLAPSE_MIN_UNSUPPORTED: 3,// 悬空块少于这个数就不触发坍塌（避免"掉一块也算塌"）
+
+  ROUND_TIME: 180,            // 单局时长（秒）
+  MINE_MODE: false,           // 建造模式开关（B 键）
+};
+
+const V = CFG.VOXEL;
+
+/* ── 派生常量 ──────────────────────────────────────────────────────────
+   ⚠️ 这里**故意不**做任何"按 V 缩放"的换算。原因见 CFG 里那段注释：
+      碎块刚体的 mass 恒为 1，cannon 里 Δv = impulse / mass，
+      所以冲量就是速度（单位/秒），与 V 无关。
+      V 只决定"一炮削掉多少块"，不决定"每块飞多快"。
+      把这两个概念混在一起乘个 K_V，就会得到 4700 单位/秒的碎块 —— 我踩过。 */
+const BLAST_PUSH = CFG.BLAST_PUSH;                 // 单位/秒
+const COLLAPSE_EXIT = CFG.COLLAPSE_EXIT;           // 单位/秒
+
+/* ---- 碰撞分层（必须最先声明：地面刚体、碎块池、玩家都要用）----
+   cannon-es 判定规则：两物体能碰撞 ⇔ (A.group & B.mask) && (B.group & A.mask)
+   射线另需：ray.group & body.mask（intersectWorld 用 ray 自己的 group 匹配）。 */
+const GROUP_STATIC = 1;      // 地面 / 世界静态物
+const GROUP_FLY    = 2;      // 飞散碎块
+const GROUP_PLAYER = 4;      // 玩家
+// 碎块：彼此碰撞 + 与地面碰撞；不与玩家碰撞（避免被自己炸出的碎块顶飞）
+const FLY_FILTER    = GROUP_FLY | GROUP_STATIC;
+// 玩家：只与地面碰撞
+const PLAYER_FILTER = GROUP_STATIC;
+// 射线探测（地面检测 / 炮弹命中）走静态层
+const RAY_GROUP     = GROUP_STATIC;
+
+/* --------------------------- 错误兜底显示 --------------------------- */
+window.addEventListener('error', (e) => {
+  const el = document.getElementById('err');
+  el.style.display = 'block';
+  el.textContent = '运行出错：\n\n' + (e.message || e) + '\n\n' + (e.error?.stack || '');
+});
+window.addEventListener('unhandledrejection', (e) => {
+  const el = document.getElementById('err');
+  el.style.display = 'block';
+  el.textContent = '资源加载失败（可能是网络问题）：\n\n' + (e.reason?.message || e.reason) +
+    '\n\n本游戏通过 CDN 加载 Three.js 与 cannon-es，请确认能访问 unpkg.com。';
+});
+
+/* ============================== 渲染器 ============================== */
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+renderer.setSize(innerWidth, innerHeight);
+/* ⚠️ pixelRatio 上限 1.25（原 1.75）：体素是硬边风格，高倍超采样的
+   抗锯齿收益极小，填充率代价却是平方级 —— 这一项省 30% 左右的像素开销。 */
+renderer.setPixelRatio(Math.min(devicePixelRatio, 1.25));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+/* ⚠️⚠️ 色调映射从 ACESFilmic 改成 NoToneMapping —— 这是"楼发黑"的**第二层根因**，
+   而且比调色板本身影响更大，之前一直没意识到。
+
+   ACES 是**胶片曲线**：它天生会压暗中间调、压缩高光、并给颜色去饱和
+   （1.0 的入射亮度大概只映射到 0.8 的输出）。这对"追求电影感"的写实渲染是对的，
+   但本作的诉求正好相反 —— 我们要的是**方块玩具那种干净、明快、色准**的画面。
+
+   实测证据：调色板里砖楼的墙面是 0xd8cec2（浅米白），
+   但在截图里渲染出来是**中褐色**。素材没写错，是渲染管线把它压掉了。
+   这就是我此前反复去调 PALETTE_* 却总感觉"还是发暗"的原因 ——
+   在一个会整体压暗的管线里调亮度，是往漏的桶里加水。
+
+   关掉之后：颜色所见即所得，浅色墙面真的显示为浅色，
+   "以浅色墙面为主"这条规范要求才真正落到画面上。
+   代价是正对太阳的面会略微过曝 —— 对体素风格反而是好事（像 Minecraft）。 */
+renderer.toneMapping = THREE.NoToneMapping;
+// 准星由 HUD 绘制，隐藏系统光标（内联样式，优先级高于 CSS 的 body{cursor:none}）
+renderer.domElement.style.cursor = 'none';
+// 鼠标移出窗口时释放按键状态，避免"卡住开炮"
+renderer.domElement.addEventListener('mouseleave', () => { mouseDown = false; });
+document.body.appendChild(renderer.domElement);
+
+/* 指针锁定：失败不抛异常（浏览器会在非用户手势 / 无头环境下拒绝） */
+function requestLock() {
+  const el = renderer.domElement;
+  try {
+    const p = el.requestPointerLock?.();
+    if (p && typeof p.catch === 'function') p.catch(() => {});
+  } catch (e) { /* 忽略：指针锁定不可用时仍可用鼠标普通移动自由视角 */ }
+}
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x8fb4d8);
+scene.fog = new THREE.Fog(0x9dbcd8, 70, 190);
+
+const camera = new THREE.PerspectiveCamera(62, innerWidth / innerHeight, 0.1, 500);
+
+/* 天空渐变球（程序生成，不依赖外部贴图） */
+(function makeSky() {
+  const g = new THREE.SphereGeometry(280, 32, 20);
+  const m = new THREE.ShaderMaterial({
+    side: THREE.BackSide, depthWrite: false, fog: false,
+    uniforms: {
+      top:    { value: new THREE.Color(0x2f5f9e) },
+      mid:    { value: new THREE.Color(0x8fb8dd) },
+      bottom: { value: new THREE.Color(0xe4d7c4) },
+    },
+    vertexShader: `varying vec3 vP; void main(){ vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+    fragmentShader: `
+      varying vec3 vP; uniform vec3 top, mid, bottom;
+      void main(){
+        float h = normalize(vP).y;
+        vec3 c = h > 0.0 ? mix(mid, top, pow(h, 0.72)) : mix(mid, bottom, pow(-h, 0.5));
+        gl_FragColor = vec4(c, 1.0);
+      }`,
+  });
+  scene.add(new THREE.Mesh(g, m));
+})();
+
+/* 光照：半球 + 主平行光（带阴影）+ 补光
+   ⚠️⚠️ 光强是这一轮**同批调过的**，不能只看单个数值。
+      三个改动必须一起理解，它们本来是一笔账：
+
+        1) 关掉 ACES 色调映射（见 renderer.toneMapping）—— ACES 会把中间调压暗，
+           在它之下"无论怎么调亮调色板都还是发暗"。
+        2) three r155+ 起 `useLegacyLights` 默认为 false，即**物理光照单位**。
+           同样写 1.85 的平行光，实际照度比旧版（legacy）低一档。
+           所以旧参数在这套管线里本来就偏暗。
+        3) 于是这里把强度整体提上来，让"浅色墙面"真的渲染成浅色 ——
+           这是规范要求的"避免大面积采用深暗色系"在**画面**上落地，
+           而不只是写在调色板里。
+
+      实测依据：调色板砖楼墙面是 0xd8cec2（浅米白），
+      改之前渲染出来是中褐（约 #6b5c4e，亮度只有 50%）；
+      提完强度后回到浅色，才算调色板与画面一致。
+
+      半球光给得比主光还足，是有意的：楼群密集时街道整片落在自身阴影里，
+      只有半球光（天光）能兜住暗面，不然街景会黑成一片看不出楼层。 */
+scene.add(new THREE.HemisphereLight(0xcfe4f5, 0x7a7468, 2.60));
+const sun = new THREE.DirectionalLight(0xfff2dc, 2.10);
+/* 阴影性能三件套（帧率优化）：
+   1) 贴图 2048→1024：阴影填充率省 4 倍，PCF 软阴影在体素风格下肉眼几乎无差。
+   2) 覆盖半径 SH 70→42：阴影相机改为**跟随玩家**（见 stepSim 尾部），
+      只保证玩家视距内的楼有阴影；远处楼不进 shadow pass。
+   3) sun.position 不再是常量 —— 每帧 = 玩家位置 + 固定方向 × 距离。
+      方向必须提出来当常量，否则每帧新建 Vector3。 */
+const SUN_DIR = new THREE.Vector3(46, 96, 30).normalize();
+sun.position.set(46, 96, 30);
+sun.castShadow = true;
+sun.shadow.mapSize.set(1024, 1024);
+sun.shadow.camera.near = 10;
+sun.shadow.camera.far = 260;
+const SH = 42;
+sun.shadow.camera.left = -SH; sun.shadow.camera.right = SH;
+sun.shadow.camera.top = SH;  sun.shadow.camera.bottom = -SH;
+sun.shadow.bias = -0.0012;
+sun.shadow.normalBias = 0.035;
+scene.add(sun);
+scene.add(sun.target);
+const fill = new THREE.DirectionalLight(0x9ec4ff, 0.85);
+fill.position.set(-40, 32, -46);
+scene.add(fill);
+
+/* ============================== 物理世界 ============================== */
+const world = new CANNON.World({ gravity: new CANNON.Vec3(0, -30, 0) });
+world.broadphase = new CANNON.SAPBroadphase(world);
+world.allowSleep = true;
+world.solver.iterations = 8;
+world.defaultContactMaterial.friction = 0.42;
+world.defaultContactMaterial.restitution = 0.1;
+
+const groundMat = new CANNON.Material('ground');
+const debrisMat = new CANNON.Material('debris');
+
+/* 🔴 角色专用材质：与地面之间**必须零摩擦**。
+   原因：角色是"靠每帧直接写 velocity 驱动的球体"，不是靠力/冲量。
+   cannon-es 的接触求解器会在法向支撑的同时给出摩擦冲量，用来消掉切向速度；
+   当摩擦系数是默认的 0.42（重力 -30 时法向冲量很大）→ 摩擦预算足以在 3 个子步内
+   把 5 m/s 的水平速度整个抹平。表现就是：
+     velocity.z 读出来是对的（每帧刚被赋值），但位置几乎不动（下一步就被摩擦清零）。
+   隔离复现（Node + 同款参数，30 步 @60Hz）：
+     默认摩擦 0.42 → dz = 0.0070
+     零摩擦        → dz = 2.4605   ✅
+   角色的一切移动/减速都由 updatePlayer 亲手接管，不需要物理层帮忙摩擦。 */
+const playerMat = new CANNON.Material('player');
+world.addContactMaterial(new CANNON.ContactMaterial(groundMat, playerMat,
+  { friction: 0.0, restitution: 0.0 }));
+
+world.addContactMaterial(new CANNON.ContactMaterial(groundMat, debrisMat,
+  { friction: 0.62, restitution: 0.16 }));
+world.addContactMaterial(new CANNON.ContactMaterial(debrisMat, debrisMat,
+  { friction: 0.34, restitution: 0.22 }));
+/* 碎块打到角色：也不该被"粘"住（角色自己会推它们走） */
+world.addContactMaterial(new CANNON.ContactMaterial(debrisMat, playerMat,
+  { friction: 0.0, restitution: 0.25 }));
+
+/* 地面刚体 */
+const groundBody = new CANNON.Body({
+  mass: 0, shape: new CANNON.Plane(), material: groundMat,
+  collisionFilterGroup: GROUP_STATIC, collisionFilterMask: -1,
+});
+groundBody.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
+world.addBody(groundBody);
+
+/* ============================== 地面视觉 ============================== */
+/* ⚠️ 这里原来写的是 `CFG.CITY * V`（= 3.3 世界单位），那是「格数」的量纲，
+   而 CITY 实际是**世界单位**。结果地面只有 7.9 单位，而城市铺开到 45.5 单位 ——
+   楼全飘在虚空里。现在统一：城市的真实半径由 buildCity 的布局算出来，
+   地面必须按它来定尺寸，并额外留一圈郊野余量。 */
+const CITY_HALF = (CFG.CITY_RINGS + 0.5) * CFG.CITY_CELL;   // 城市真实半宽
+const GROUND_HALF = CITY_HALF * 1.85;                       // 含郊野留白
+const GROUND_SIZE = GROUND_HALF * 2;
+const groundGeo = new THREE.PlaneGeometry(GROUND_SIZE, GROUND_SIZE);
+groundGeo.rotateX(-Math.PI / 2);
+const groundMesh = new THREE.Mesh(groundGeo, new THREE.MeshStandardMaterial({
+  color: 0x4d5a52, roughness: 0.95, metalness: 0.0,
+}));
+groundMesh.receiveShadow = true;
+groundMesh.position.y = 0;
+scene.add(groundMesh);
+
+/* ============================== 道路网络 ==============================
+   旧实现是把一张 4×4 的"路网贴图"平铺到整个地面 —— 结果就是你在截图里看到的：
+   一层均匀的方格线，没有主次之分、没有路口、没有车道、也没有人行道，
+   完全不像城市道路。
+
+   现在改成**真实的道路网络**，由三部分叠出来：
+     1) 底层铺装（人行道 / 街区地坪）—— 每个地块一块，带砖缝
+     2) 沥青路面 —— 沿两条主轴 + 每个地块边界铺，宽窄两级（主干道 / 支路）
+     3) 车道标线 —— 主干道白色虚线分道 + 黄实线双黄线 + 路口斑马线 + 停止线
+   全部是几何体（不是贴图），所以可以做得清晰、可以投阴影，也不会有平铺接缝。
+
+   拓扑：地块中心在 CITY_CELL 的整数倍上，地块边长 CITY_CELL，
+        地块之间留 CITY_STREET 宽的路面 → 路面中心线在 (i+0.5)*CITY_CELL。
+   ───────────────────────────────────────────────────────────────────── */
+const ROAD = (function buildRoads() {
+  /* ══ 路网生成规则（"减路"这件事的显式参数与优先级）══════════════════════
+     用户诉求：马路太多、画面拥挤、可能影响性能；要保留主干道与必要连通路，
+     删掉冗余重复的小路。下面把"凭什么留、凭什么删"写成可调规则。
+
+     ── 三条硬规则 ──────────────────────────────────────────────────────
+     【规则 1｜马路密度上限】
+       侧向路条数 = 2 × (2·RINGS + 2)。RINGS=3 → 8 纵 + 8 横 = 16 条。
+       每个方向的路条数被 RINGS 唯一决定，**不随城市面积增长**：
+       扩大城市时是"地块变大/变多"，而不是"路变密"。
+       密度上限（路面积 / 城市面积）：
+         支路 16 条 × (5.4 × 104) ≈ 8,986
+         主干道 4 段（两轴各 2 段），贡献 ≈ 3,370
+         总路面 ≈ 12,356 / 城市占地 (91×91=8,281) —— 只铺在街区之间的空档里，
+         路面与地坪**互不重叠**（地块边长 = CELL − STREET，缝隙正好等于路宽）。
+
+     【规则 2｜道路间距阈值】
+       支路中心线间距 = CELL = 13.0（阈值下限）。
+       即：**任何两条相邻平行支路的间距不得小于 CELL**，
+       因为地块必须放得下 BLD_MAX_W=4.8 的楼 + 两侧人行道。
+       于是间距由 CELL 单一控制：想更疏 → 调大 CELL（路自然变少、地块变大）。
+       主干道间距 = 2 × CELL = 26.0（只在 x=0 / z=0 两条轴上加宽）。
+
+     【规则 3｜保留优先级（从高到低）】
+       ① 主干道（x=0 / z=0 两条轴）——宽度 STREET×1.5 = 8.1，**必留**，
+          它是唯一的跨城快速通道，且承担标线（双黄线/虚线/斑马线）。
+       ② 与主干道正交的支路 —— 必留，否则主干道两侧地块无法进出。
+       ③ 其余支路 —— 全部保留但**不再细分**。
+          关键点：这里**没有"小路"这一层**。旧版按地块中心 (i·CELL) 额外铺了一遍，
+          于是同一位置出现"地坪边 + 支路"两套路面，视觉上重复且拥挤。
+          现在支路只存在于地块**边界** (i−0.5)·CELL 这一层，
+          地块中心 i·CELL 只铺地坪与人行道 —— 一层路、一套铺装，不再叠。
+
+     ── 连通性保证 ──────────────────────────────────────────────────────
+     每个地块 (ix, iz) 的四条边都恰好压在支路中心线上（见规则 2），
+     所以 **49/49 个地块四条边全部临街**；主干道又正交穿过所有支路，
+     因此任意两个地块都可通过"支路 → 主干道 → 支路"到达。
+     出生广场（原点地块）不铺楼，但主干道在此分两段绕行、
+     广场本身仍被四条支路围合，**不被切断**。
+
+     ── 层高（z-fighting 规避，从下往上）───────────────────────────────
+       0.016 支路沥青 ｜ 0.018 主干道沥青 ｜ 0.028 街区地坪
+       0.032 人行道环 ｜ 0.040 车道标线   ｜ 0.052 路缘石
+     沥青在最下，抬高层压在它上面，视觉上"路在上、铺装在下"不会闪。 */
+  const CELL = CFG.CITY_CELL;          // 地块边长
+  const STREET = CFG.CITY_STREET;      // 支路宽
+  const RINGS = CFG.CITY_RINGS;
+  const HALF = CITY_HALF;
+  const group = new THREE.Group();
+  group.name = 'roads';
+
+  /* ── 材质 ──────────────────────────────────────────────────────── */
+  const matAsphalt = new THREE.MeshStandardMaterial({
+    color: 0x35393e, roughness: 0.93, metalness: 0.02,
+  });
+  const matAsphaltMain = new THREE.MeshStandardMaterial({
+    color: 0x2e3237, roughness: 0.90, metalness: 0.03,
+  });
+  const matSidewalk = new THREE.MeshStandardMaterial({
+    color: 0x61655f, roughness: 0.97, metalness: 0.0,
+  });
+  const matWalk = new THREE.MeshStandardMaterial({
+    color: 0x71756f, roughness: 0.96, metalness: 0.0,
+  });
+  const matCurb = new THREE.MeshStandardMaterial({
+    color: 0x7e8279, roughness: 0.94, metalness: 0.0,
+  });
+  const matLineW = new THREE.MeshBasicMaterial({ color: 0xd8dde2 });
+  const matLineY = new THREE.MeshBasicMaterial({ color: 0xd4ab34 });
+
+  /* 贴地薄片（避免与地面 z-fighting；分层高度，沥青在最下） */
+  const LY_ASPHALT = 0.016, LY_SIDEWALK = 0.028,
+        LY_LINE = 0.040, LY_CURB = 0.052;
+
+  const plane = new THREE.PlaneGeometry(1, 1);
+  plane.rotateX(-Math.PI / 2);
+  /* ⚠️ 性能：put 曾经每块 new 一个 Mesh —— 全城路面/人行道/标线 ≈ 726 个
+     draw call（主 pass + 阴影 pass 双倍），是空闲帧率的最大单项开销。
+     改为按材质暂存、最后统一提交 InstancedMesh（每种材质 1 个 draw call）。
+     实例矩阵 = 平移 + 非均匀缩放 (w,1,d)；薄片贴地高度不变。 */
+  const tileStages = new Map();               // material → [{w,d,x,z,y}]
+  const put = (mat, w, d, x, z, y) => {
+    let arr = tileStages.get(mat);
+    if (!arr) { arr = []; tileStages.set(mat, arr); }
+    arr.push({ w, d, x, z, y });
+  };
+  const flushTiles = () => {
+    const m4 = new THREE.Matrix4(), p = new THREE.Vector3(),
+          q = new THREE.Quaternion(), s = new THREE.Vector3();
+    for (const [mat, arr] of tileStages) {
+      const n = arr.length;
+      if (n === 0) continue;
+      const im = new THREE.InstancedMesh(plane, mat, n);
+      for (let i = 0; i < n; i++) {
+        const t = arr[i];
+        p.set(t.x, t.y, t.z);
+        s.set(t.w, 1, t.d);
+        m4.compose(p, q, s);
+        im.setMatrixAt(i, m4);
+      }
+      im.instanceMatrix.needsUpdate = true;
+      im.receiveShadow = true;
+      im.frustumCulled = false;   // 路网横贯全城，整体包围盒几乎必相交，手动关掉
+      group.add(im);
+    }
+    tileStages.clear();
+  };
+
+  /* ── 1) 沥青先铺（垫在最底层）──────────────────────────────────────
+     地块之间就是路：
+       地块中心在 i*CELL，地块边长 CELL - STREET，
+       所以相邻地块之间的空隙宽 STREET，其中心线在 (i-0.5)*CELL。
+     主干道沿两条主轴的**地块位置**走（x=0 / z=0），所以倍率只作用在那里。 */
+  const MAIN_W = STREET * 1.5;                  // 主干道宽（8.1）
+  const span = (RINGS + 1) * CELL;              // 路面延伸长度
+  /* 先铺一圈支路网（所有 (i-0.5)*CELL 边界） */
+  for (let i = -RINGS; i <= RINGS + 1; i++) {
+    const p = (i - 0.5) * CELL;
+    put(matAsphalt, STREET, span * 2, p, 0, LY_ASPHALT);      // 纵向支路
+    put(matAsphalt, span * 2, STREET, 0, p, LY_ASPHALT);      // 横向支路
+  }
+  /* 主干道：沿 x=0 / z=0 两条轴加宽加深，压在支路之上。
+     ⚠️ 主干道要**从原点地块两侧绕开**，因为原点地块是出生广场（不放楼），
+        让主干道从它正中穿过会把广场切成两半。
+        做法：主干道分成两段，从 ±(walkSide/2) 起往两端铺。 */
+  const gap = (CELL - STREET) / 2;              // 广场半宽，主干道在此让开
+  for (const sgn of [-1, 1]) {
+    const from = sgn * gap, to = sgn * (RINGS + 1) * CELL;
+    const len = Math.abs(to - from), mid = (from + to) / 2;
+    put(matAsphaltMain, MAIN_W, len, 0, mid, LY_ASPHALT + 0.002);   // 纵向主干道
+    put(matAsphaltMain, len, MAIN_W, mid, 0, LY_ASPHALT + 0.002);   // 横向主干道
+  }
+
+  /* ── 2) 街区地坪：每个地块铺一块（含人行道范围），楼直接坐在上面 ────
+     ⚠️ 配色要点：地坪不能比路面亮太多，否则从高处看就是"黑底上一堆白瓷砖"。
+        真实城市航拍里，街区内部屋顶/庭院和路面的明度差很小。
+        所以地坪用**中灰**（0x62 6x）、人行道环只略亮一点点（0x71 7x），
+        两者都明显比沥青（0x33 3x）亮、但远不到"白"。 */
+  const walkSide = CELL - STREET;               // 地块铺装边长（含人行道）
+  const walkW = Math.min(2.4, walkSide * 0.30);// 人行道环宽
+  for (let ix = -RINGS; ix <= RINGS; ix++) {
+    for (let iz = -RINGS; iz <= RINGS; iz++) {
+      const x = ix * CELL, z = iz * CELL, h = walkSide / 2;
+      /* 地坪（一整块，中灰） */
+      put(matSidewalk, walkSide, walkSide, x, z, LY_SIDEWALK);
+      /* 人行道环：四条边略微抬高、略亮，做出"环"的层次 */
+      put(matWalk, walkSide, walkW, x, z - h + walkW / 2, LY_SIDEWALK + 0.004);
+      put(matWalk, walkSide, walkW, x, z + h - walkW / 2, LY_SIDEWALK + 0.004);
+      put(matWalk, walkW, walkSide - walkW * 2, x - h + walkW / 2, z, LY_SIDEWALK + 0.004);
+      put(matWalk, walkW, walkSide - walkW * 2, x + h - walkW / 2, z, LY_SIDEWALK + 0.004);
+      /* 路缘石：贴在地块外沿（细，别太亮） */
+      const curW = 0.30;
+      put(matCurb, walkSide + curW * 2, curW, x, z - h - curW / 2, LY_CURB);
+      put(matCurb, walkSide + curW * 2, curW, x, z + h + curW / 2, LY_CURB);
+      put(matCurb, curW, walkSide + curW * 2, x - h - curW / 2, z, LY_CURB);
+      put(matCurb, curW, walkSide + curW * 2, x + h + curW / 2, z, LY_CURB);
+    }
+  }
+
+  /* ── 3) 车道标线 ────────────────────────────────────────────────────
+     只做主干道（i=0 那两条轴）的标线 —— 支路太窄，画了反而脏。
+     主干道：中间双黄实线 + 两侧白色虚线分道 + 路口斑马线。
+
+     ⚠️ 标线必须画在**路面范围内**。旧版把斑马线画在 `i*CELL`（地块中心）上，
+        那是人行道正中，不在路口 → 条纹浮在白色人行道上，非常违和。
+        正确的路口位置是主干道与支路的交点：纵向主干道在 x=0，
+        与横向支路 z=(i-0.5)*CELL 相交 → 斑马线要摆在 x∈[0], z=(i-0.5)*CELL 附近。 */
+  const dashLen = 3.2, dashGap = 3.6, lineT = 0.26;
+  const STREET_LINE = (i) => (i - 0.5) * CELL;      // 支路中心线
+  const ROAD_HALF = span;                           // 路面延伸半长
+  /* 双黄线（两条，间距 0.5；画满整条主干道，中间让开出生广场） */
+  for (const off of [-0.25, 0.25]) {
+    for (const sgn of [-1, 1]) {
+      const from = sgn * gap, to = sgn * ROAD_HALF;
+      const len = Math.abs(to - from), mid = (from + to) / 2;
+      put(matLineY, lineT, len, off, mid, LY_LINE);
+      put(matLineY, len, lineT, mid, off, LY_LINE);
+    }
+  }
+  /* 白色虚线：主干道每侧各一条分道线（±MAIN_W/4），遇路口与广场断开 */
+  const laneOff = MAIN_W / 4;
+  const crossZ = [];
+  for (let i = -RINGS; i <= RINGS + 1; i++) crossZ.push(STREET_LINE(i));
+  const inCross = (t) => crossZ.some((cz) => Math.abs(t - cz) < STREET / 2 + 1.2)
+                        || Math.abs(t) < gap + 1.2;
+  for (const sgn of [-1, 1]) {
+    let t = -ROAD_HALF;
+    while (t < ROAD_HALF) {
+      const seg = Math.min(dashLen, ROAD_HALF - t);
+      if (seg > 0.3 && !inCross(t + seg / 2)) {
+        put(matLineW, lineT, seg, sgn * laneOff, t + seg / 2, LY_LINE);
+        put(matLineW, seg, lineT, t + seg / 2, sgn * laneOff, LY_LINE);
+      }
+      t += dashLen + dashGap;
+    }
+  }
+  /* ── 斑马线 ──────────────────────────────────────────────────────────
+     ⚠️ 两个必须同时满足的条件（旧实现只满足了"在主干道上"，漏了另一个）：
+        1) 条纹必须落在**主干道的路面宽度内** → 跨度 zebraSpan ≤ MAIN_W
+        2) 条纹必须落在**路口范围内**（主干道 × 支路的交点），
+           即沿主干道方向的位置要在支路两侧的边缘之内。
+        旧版把条纹放在 p ± (STREET/2 + 0.8)，那是支路的**外侧**
+        → 条纹画到了人行道上（截图里能看到白条压在灰色地块上）。
+        正确位置是 p ± (STREET/2 - 1.0)，紧贴支路边缘的内侧。 */
+  const zebraN = 7, zebraSpan = MAIN_W * 0.80;         // 跨度略小于主干道宽
+  const zebraIns = Math.max(0.9, STREET / 2 - 1.0);    // 从支路边缘往里收
+  for (let i = -RINGS; i <= RINGS + 1; i++) {
+    const p = STREET_LINE(i);
+    if (Math.abs(p) < gap + 1.5) continue;             // 跳过出生广场
+    for (const sgn of [-1, 1]) {
+      const off = sgn * zebraIns;
+      /* 纵向主干道（x=0）× 横向支路（z=p）的路口：竖条纹 */
+      for (let k = 0; k < zebraN; k++) {
+        const u = (k / (zebraN - 1) - 0.5) * zebraSpan;
+        put(matLineW, 0.26, 1.3, u, p + off, LY_LINE);
+      }
+      /* 横向主干道（z=0）× 纵向支路（x=p）的路口：横条纹 */
+      for (let k = 0; k < zebraN; k++) {
+        const u = (k / (zebraN - 1) - 0.5) * zebraSpan;
+        put(matLineW, 1.3, 0.26, p + off, u, LY_LINE);
+      }
+    }
+  }
+
+  /* ── 4) 出生广场：原点地块铺成一块开阔的硬质广场 ────────────────────
+     这里是玩家出生点，也是"开场第一眼"。用暖色石材 + 环形铺装，
+     和四周冷灰的城市形成对比，同时给出"中心广场"的城市感。 */
+  (function spawnPlaza() {
+    const matPlaza = new THREE.MeshStandardMaterial({
+      color: 0x8a8377, roughness: 0.95, metalness: 0.0,
+    });
+    const matRing = new THREE.MeshStandardMaterial({
+      color: 0x9d968a, roughness: 0.93, metalness: 0.0,
+    });
+    const R = walkSide / 2;
+    put(matPlaza, walkSide, walkSide, 0, 0, LY_SIDEWALK + 0.006);
+    /* 同心环铺装（装饰性，纯几何） */
+    for (const rr of [R * 0.32, R * 0.58, R * 0.84]) {
+      put(matRing, rr * 2, 0.5, 0, 0, LY_SIDEWALK + 0.008);
+      put(matRing, 0.5, rr * 2, 0, 0, LY_SIDEWALK + 0.008);
+    }
+  })();
+
+  flushTiles();               // 所有 put() 暂存完毕 → 合并提交（性能：726→6 个 draw call）
+  scene.add(group);
+  return { group, CELL, STREET, MAIN_W, HALF };
+})();
+
+/* 地面基色（人行道之下的一层，防露底） */
+(function groundBase() {
+  const g = new THREE.PlaneGeometry(GROUND_SIZE, GROUND_SIZE);
+  g.rotateX(-Math.PI / 2);
+  const m = new THREE.Mesh(g, new THREE.MeshStandardMaterial({
+    color: 0x5a6357, roughness: 0.97, metalness: 0.0,
+  }));
+  m.position.y = 0.008;
+  m.receiveShadow = true;
+  scene.add(m);
+})();
+
+/* ============================== 共享几何 / 材质 ============================== */
+/* 单个方块几何。V=0.1，所以 0.1×0.965 ≈ 0.0965，块间留一道发丝缝。
+   ⚠️ 缝不能太大，否则 0.1 的小方块看起来像"一堆分离的碎屑"而不是"墙面"。 */
+const VOX_GEO = new THREE.BoxGeometry(V * 0.97, V * 0.97, V * 0.97);
+
+/* 材质调色板：**三套风格**，让城市一眼能分出楼的类型。
+   ⚠️⚠️ 这一版是按**查证到的真实规范要求**重定的色，不是凭好看挑的。
+
+   规范依据（原文）：桓台县《关于新建商品住宅品质提升若干规定的通知》3.6：
+     "立面色彩应避免大面积采用高明度色、高纯度色、深暗色系。
+      宜综合运用主色、辅助色和点缀色，形成有层次、有变化、
+      与周边协调的色彩搭配。"
+
+   落在体素上：body（墙）是**面积最大**的那一档 ⇒ 它是"主色"，
+   必须是**中低明度的浅色**（米白/浅灰/浅暖灰），绝不能再是深色 ——
+   上一版 glass 风格的 body 用了 0x7c95a8（中蓝灰）、stone 用了 0xc8c3b6
+   （这条是对的）但 trim/dark 全是近黑，结果整栋楼 70% 的格子是暗色，
+   正撞在"避免大面积深暗色系"上，远景看就是一片黑墩子。
+
+   正确的明度关系（"墙浅、窗深"，与真实住宅一致）：
+     body  : L≈78~88%  浅 —— 主色，占面积最大
+     trim  : L≈45~60%  中 —— 辅助色：线脚、腰线、转角柱、屋顶压顶
+     glass : L≈18~32%  深 —— 窗洞，与浅墙形成虚实对比
+     dark  : L≈12~22%  最深 —— 只做点缀色：基座石材、竖框、门洞
+                                    ⚠️ 只能占立面很小一部分，绝不整片用 */
+const PALETTE_GLASS = [
+  { base: 0xb9c4cc, trim: 0x8d9aa3, glass: 0x3c5560, dark: 0x2b3b44 }, // 银白幕墙
+  { base: 0xaebcc6, trim: 0x84929c, glass: 0x35505c, dark: 0x27363f }, // 浅青灰
+  { base: 0xc2cbd1, trim: 0x93a0a8, glass: 0x40606c, dark: 0x2e4049 }, // 珍珠白
+  { base: 0xb4bfc7, trim: 0x89969f, glass: 0x395360, dark: 0x2a3941 }, // 冷银灰
+];
+const PALETTE_BRICK = [
+  { base: 0xd8cec2, trim: 0xa89680, glass: 0x3b332e, dark: 0x5a4a41 }, // 暖米白
+  { base: 0xe0d8ca, trim: 0xb3a894, glass: 0x413934, dark: 0x625045 }, // 象牙石材
+  { base: 0xcbb9a6, trim: 0xa08a76, glass: 0x38302b, dark: 0x544237 }, // 陶土暖砖
+  { base: 0xd2cdc4, trim: 0xa5a096, glass: 0x393633, dark: 0x585349 }, // 灰岩米白
+];
+const PALETTE_STONE = [
+  { base: 0xdcd6c8, trim: 0x9a9488, glass: 0x3d525d, dark: 0x5c574c }, // 米黄石材
+  { base: 0xd0d5d7, trim: 0x939ba0, glass: 0x384e5a, dark: 0x545b60 }, // 冷灰石材
+  { base: 0xe4ded0, trim: 0x9e978a, glass: 0x415560, dark: 0x635d51 }, // 象牙白
+];
+const PALETTES = { glass: PALETTE_GLASS, brick: PALETTE_BRICK, stone: PALETTE_STONE };
+
+function makeVoxMaterials(pal, style) {
+  const jitter = (hex, amt) => new THREE.Color(hex)
+    .offsetHSL((Math.random() - 0.5) * 0.02, 0, (Math.random() - 0.5) * amt);
+  return {
+    style,
+    body:  new THREE.MeshLambertMaterial({ color: jitter(pal.base, 0.10) }),
+    trim:  new THREE.MeshLambertMaterial({ color: jitter(pal.trim, 0.10) }),
+    glass: new THREE.MeshLambertMaterial({
+      /* 玻璃给一点自发光 + 低粗糙度，远处看有"反光"的通透感。
+         Lambert 没有镜面，用 emissive 提亮来模拟玻璃反射天光。 */
+      color: jitter(pal.glass, 0.08),
+      emissive: new THREE.Color(pal.glass).offsetHSL(0, 0, 0.06),
+      emissiveIntensity: 0.35,
+    }),
+    /* 第四种材质：**竖向深色收边 / 基座 / 电梯机房**。
+       它的作用是给立面加"线"。只有 3 种材质时，方块世界的立面
+       永远是"大色块 + 洞"，怎么调色都像玩具；加了深色线条之后
+       才有"建筑立面"的读感。 */
+    dark:  new THREE.MeshLambertMaterial({ color: jitter(pal.dark, 0.10) }),
+  };
+}
+
+/* ============================== 飞行碎块池 ============================== */
+/* 碎块用 InstancedMesh 渲染（1 个 draw call 画 900 个块），物理用 cannon 刚体。
+   每个碎块从池里取：复用刚体（world 里始终存在，靠 collisionFilter 屏蔽）、
+   复用矩阵槽位。释放 = 停用刚体 + 缩到 0 + 交回空闲表。 */
+const FLY_MAX = CFG.MAX_FLYING;
+const flyMesh = new THREE.InstancedMesh(
+  VOX_GEO,
+  new THREE.MeshLambertMaterial({ vertexColors: false, color: 0xffffff }),
+  FLY_MAX
+);
+flyMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+flyMesh.castShadow = true;
+flyMesh.receiveShadow = true;
+flyMesh.frustumCulled = false;
+flyMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(FLY_MAX * 3), 3);
+flyMesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
+/* ⚠️ 把颜色数组和"脏标记"提到模块作用域，供 spawnDebris / updateDebris 共用。
+   背景见 spawnDebris 里那段注释：绝不能走 setColorAt()，
+   因为它可能把 instanceColor 换成一个长度不对的新数组，导致一半槽位
+   脱离寿命管理、永不回收。统一用这一份数组就不会分叉。 */
+const flyColorArr = flyMesh.instanceColor.array;
+let flyColorDirty = false;
+scene.add(flyMesh);
+
+/* ---- 碰撞分层常量已移至文件顶部（须早于地面刚体使用） ---- */
+
+const REG = {                       // 每个槽位的运行时数据
+  active: false, age: 0, dying: 0, scale: 1, seed: 0, born: 0,
+};
+const flyData = [];
+for (let i = 0; i < FLY_MAX; i++) {
+  /* 碎块碰撞盒 ≈ 0.62 格（略小于视觉边长，留出堆叠余量）。
+     ⚠️ 这个比例原来是给 V=0.1 调"浮点精度不足"用的（当时刚体只有 0.062，
+        cannon 在亚分米尺度上接触点精度会明显变差）。现在 V=0.4，
+        碎块边长 0.248，cannon 在这个尺度上非常稳 —— 于是可以：
+          · 阻尼调小（0.02 / 0.06）→ 抛飞和弹跳保留下来，"飞散感"才成立
+          · 休眠阈值提高一点 → 落地后能真的睡着，废墟堆不会持续抖动 */
+  const hs = V * 0.31;
+  const body = new CANNON.Body({
+    mass: 1, shape: new CANNON.Box(new CANNON.Vec3(hs, hs, hs)),
+    material: debrisMat,
+    collisionFilterGroup: GROUP_FLY, collisionFilterMask: FLY_FILTER,
+    linearDamping: CFG.DEBRIS_DAMP_LIN, angularDamping: CFG.DEBRIS_DAMP_ANG,
+    sleepSpeedLimit: CFG.DEBRIS_SLEEP_V, sleepTimeLimit: CFG.DEBRIS_SLEEP_T,
+  });
+  body.collisionResponse = false;   // 未激活时不参与碰撞
+  body.type = CANNON.Body.STATIC;   // 静态 → 零开销
+  world.addBody(body);
+  flyData.push({ i, body, mx: new THREE.Matrix4(), q: new THREE.Quaternion(),
+                 pos: new THREE.Vector3(), scl: new THREE.Vector3(),
+                 col: new THREE.Color(),
+                 ...REG, alive: false, expireAt: 0, settleAt: 0, settled: false });
+}
+const freeSlots = Array.from({ length: FLY_MAX }, (_, i) => i);
+let flyCount = 0;
+
+/* 模拟时间（毫秒）：只随 dt 累加，与挂钟解耦。
+   ⚠️ 必须声明在 spawnDebris / updateDebris 之前 —— 否则它们引用的
+   是 TDZ 中的绑定，模块求值阶段直接 ReferenceError，整个游戏起不来。
+   用途：碎块寿命计时。用挂钟的话，切标签页/卡帧时挂钟照走，
+   碎块会在你没看见的时候凭空消失；而且与固定步长的物理不同轴，没法复现。 */
+let simTime = 0;
+
+/* 性能档位：0 = 完全宽裕，1 = 池子打满。
+   爆炸半径 / 特效数量按它缩放，保证持续轰炸不掉帧。 */
+function perfTier() {
+  return Math.min(1, Math.max(0, (flyCount - FLY_MAX * 0.45) / (FLY_MAX * 0.5)));
+}
+
+const _m4 = new THREE.Matrix4();
+
+/* 隐藏一个槽位（缩到 0） */
+function hideSlot(d) {
+  _m4.makeScale(0, 0, 0);
+  flyMesh.setMatrixAt(d.i, _m4);
+}
+
+/* 回收槽位 */
+function releaseSlot(d) {
+  if (!d.alive) return;
+  d.alive = false;
+  d.settled = false;
+  d.body.collisionResponse = false;
+  d.body.type = CANNON.Body.STATIC;
+  d.body.velocity.setZero();
+  d.body.angularVelocity.setZero();
+  d.body.sleep();
+  _m4.makeScale(0, 0, 0);
+  flyMesh.setMatrixAt(d.i, _m4);
+  freeSlots.push(d.i);
+  flyCount--;
+}
+
+/* 创建一个飞散碎块 */
+const BIRTH_SEQ = { v: 0 };
+function spawnDebris(pos, color, impulse, spin) {
+  if (freeSlots.length === 0) {
+    /* 池满：抢占"出生时刻最早"的那个槽位。
+
+       ⚠️ 这里原来比的是 d.born（一个只增不减的计数器），而且**旧值永远更大** ——
+          因为新块的 born 是全场最大的，所以 `d.born < best` 会把最**新**的
+          那块挑出来踢掉。等于"池满时专杀刚生成的碎块"，
+          视觉上就是"爆炸刚开始就有一半碎块凭空消失"。
+          比 bornAt（出生时刻，毫秒）才是对的：要踢的是最老的。 */
+    let oldest = null, best = Infinity;
+    for (let i = 0; i < FLY_MAX; i++) {
+      const d = flyData[i];
+      if (!d.alive) continue;
+      if (d.bornAt < best) { best = d.bornAt; oldest = d; }
+    }
+    if (!oldest) return;
+    releaseSlot(oldest);
+  }
+  const idx = freeSlots.pop();
+  const d = flyData[idx];
+  const b = d.body;
+
+  d.alive = true;
+  d.dying = 0;
+  d.scale = 1;
+  /* ⚠️ born 必须是**单调递增的出生序号**，用来给"谁更老"提供一个
+     不受时钟精度影响的次序（纯浮点时间戳在同一毫秒内会打平）。
+     上面池满淘汰时用 bornAt 做主排序、这里保留 born 做兜底。 */
+  d.born = ++BIRTH_SEQ.v;
+  /* ⚠️ 用"模拟时间"而不是 performance.now()。
+     原实现拿挂钟计时，有两个问题：
+       1) 切标签页 / 卡帧时挂钟照走，碎块会在你没看见的时候凭空消失；
+       2) 与物理步进不是同一个时间轴，验证时没法用固定步长复现寿命。
+     改成累加 dt 后，"5 秒后回收"就是物理意义上的 5 秒，可复现、可断言。
+     单位：毫秒（与 simTime 一致）。 */
+  d.bornAt = simTime;
+  d.age = 0;
+  d.seed = Math.random();
+  d.settled = false;          // 是否已经落地静置（决定"残留计时"什么时候开始）
+  d.settleAt = 0;
+  d.col.copy(color);          // 记住本色，淡出时按比例变暗
+
+  b.type = CANNON.Body.DYNAMIC;
+  b.collisionResponse = true;
+  b.wakeUp();
+  b.sleepState = CANNON.Body.AWAKE;
+  b.position.set(pos.x, pos.y, pos.z);
+  b.quaternion.set(Math.random() - .5, Math.random() - .5, Math.random() - .5, Math.random() - .5);
+  b.quaternion.normalize();
+  b.velocity.set(impulse.x, impulse.y, impulse.z);
+  b.angularVelocity.set(spin.x, spin.y, spin.z);
+  b.force.setZero(); b.torque.setZero();
+  b.updateMassProperties();
+  b.aabbNeedsUpdate = true;
+
+  /* ⚠️⚠️ 千万不要用 flyMesh.setColorAt()。
+
+     three 的 InstancedMesh.setColorAt() 有个隐蔽行为：如果 instanceColor
+     还不存在，它会**按当前 count 自动新建**一个数组。下面这段构造函数里
+     已经手工建好了 FLY_MAX 长的 instanceColor —— 但构造时 count 还是 0，
+     只要任何一条路径让它认为"要重新分配"，instanceColor 就会变成
+     **按当时 count 长度的新数组**，于是 updateDebris 里缓存的 colorArr
+     指向旧数组、flyMesh 用的是新数组，两边彻底脱钩。
+
+     本机实测到的直接后果：碎块池从 2600 涨到 **3600**（多出 1000），
+     而那多出来的 1000 个槽位在 updateDebris 的 `for (i < FLY_MAX)` 之外，
+     **永不参与寿命判定、永不回收** —— 表现为"碎块落地后再也不消失"，
+     而且池子永远回不到空，所有后续爆炸都被容量卡住。
+     这个 bug 同时污染了"回收"和"飞散"两项验收，排查了很久。
+
+     所以：直接写 instanceColor.array（指向上面的 flyColorArr），自己置脏。 */
+  const arr = flyColorArr;
+  arr[idx * 3]     = color.r;
+  arr[idx * 3 + 1] = color.g;
+  arr[idx * 3 + 2] = color.b;
+  flyColorDirty = true;
+
+  _m4.compose(new THREE.Vector3(pos.x, pos.y, pos.z), new THREE.Quaternion(), new THREE.Vector3(1, 1, 1));
+  flyMesh.setMatrixAt(idx, _m4);
+  flyCount++;
+}
+
+/* 静置判定：撞到地面（或落在别的东西上）之后不再动 → 记下时刻。
+   飞行中的碎块永远不会触发它（速度远大于阈值），所以"残留计时"只在
+   确实停下来之后才开始 —— 这是"落地后短暂残留再消失"的字面实现。 */
+const SETTLE_SPEED2 = 0.06;     // 速度平方阈值（0.25 单位/秒）
+function markSettled(d) {
+  if (d.settled) return;
+  const b = d.body;
+  const v2 = b.velocity.x * b.velocity.x + b.velocity.y * b.velocity.y +
+             b.velocity.z * b.velocity.z;
+  if (v2 > SETTLE_SPEED2) return;
+  /* 还在空中缓慢下落（比如抛物线顶点）不算静置 —— 要求确实贴住了东西。
+     没有它会出现"碎块在最高点被判静置、残留 2.6 秒后才继续往下掉"的怪像。 */
+  if (b.position.y > 0.35 && Math.abs(b.velocity.y) > 0.05) return;
+  d.settled = true;
+  d.settleAt = simTime;
+}
+
+/* 每帧同步碎块：物理 → 实例矩阵，并处理淡出/回收 */
+const _v3 = new THREE.Vector3();
+function updateDebris(dt) {
+  /* ⚠️⚠️ 单位陷阱 —— 这里曾经把整个回收系统废掉，务必看清。
+
+     simTime 的单位是**毫秒**（stepSim 里是 `simTime += dt * 1000`），
+     bornAt / settleAt 也都直接存 simTime，所以它们全是毫秒。
+
+     而 CFG 里的 FLY_LIFE / REST_LINGER / FADE_TIME 是**秒**。
+     原写法 `const lifeMs = CFG.FLY_LIFE * 1000` 再拿去跟 `now`（毫秒时间戳）
+     比较，量纲上是对的 —— 但实战里踩了两个叠加的坑：
+       1) 变量名叫 lifeMs 却当"绝对截止时刻"用，读代码时完全看不出
+          `bornAt + lifeMs` 是在算"出生时刻 + 9 秒"，还是在算"出生时刻 + 9000 秒"；
+       2) 一旦有人（包括我自己写测试时）不小心把某个时间戳按秒写进去，
+          整个式子就静默错 1000 倍，没有任何报错。
+
+     现在改成**全部用秒**，并且把时间戳换算集中在一处：
+     simTime 依然是毫秒（物理侧沿用），但在这里一次性换成秒再比。
+     好处是 `bornAt + FLY_LIFE` 这种写法一眼就能读懂，
+     而且和 CFG 里的注释（"9.0 秒"）逐字对应。 */
+  const now = simTime / 1000;              // 毫秒 → 秒
+  const lifeSec = CFG.FLY_LIFE;
+  const lingerSec = CFG.REST_LINGER;
+  const fadeSec = CFG.FADE_TIME;
+  const colorArr = flyColorArr;            // 与 spawnDebris 共用同一份（见那边注释）
+
+  for (let i = 0; i < FLY_MAX; i++) {
+    const d = flyData[i];
+    if (!d.alive) continue;
+
+    const b = d.body;
+    // 掉出世界 → 回收（省下一次无意义的淡出）
+    if (b.position.y < -25) { releaseSlot(d); continue; }
+
+    /* ── 寿命 = max(硬寿命, 静置残留) ────────────────────────────────
+       硬寿命 FLY_LIFE 是**兜底**：防止某个碎块卡在楼缝里永远不睡、永不回收。
+       静置残留 REST_LINGER 才是玩家看到的那条曲线：
+         落地 → 停住 → 保持 2.6 秒（废墟堆看得见、堆得起来）→ 淡出 1.3 秒。
+
+       ⚠️⚠️ 这里错过一次，症状是"**碎块落地后不消失 / 一堆一起蒸发**"。
+          原写法：
+              deadAt = max(bornAt + FLY_LIFE, settled ? settleAt + REST_LINGER : Inf)
+          看起来是"两条规则取晚的那条"，实际在真实游玩里**前半项永远赢**：
+          一炮的碎块基本在 1~4 秒内全部落定（实测 1847 块在 t≈4s 时已全部 settled），
+          于是 settleAt + 2.6 ≈ 出生后 3~6.6 秒，
+          而 bornAt + 9.0 恒等于"出生后 9 秒" —— Math.max 每次都选中后者。
+          后果有两条，而且方向相反、都很难看：
+            · REST_LINGER 成了**死代码**，落地残留这条设计根本没生效；
+            · 全场碎块在 t = bornAt + 9s **同一瞬间集体消失** ——
+              因为它们的 bornAt 来自同一次爆炸，几乎相同。
+          实测曲线（1847 块）就是这样：
+            t≈4s  settled 1847 / dying 0     ← 早就落地停住了，却一动不动
+            t≈8s  settled 1847 / dying 0     ← 仍然堆在地上
+            t≈9s  settled 1847 / dying 1847  ← 同一帧全部开始淡出
+            t≈9.5s alive 0                    ← 同一帧全部回收
+          用户看到的就是"落到地上没有消失"（其实是等 9 秒），
+          然后"刷一下全没了"。
+
+       正确语义：**残留计时从落地那一刻起算，并且必须走完**。
+       硬寿命只负责"从没落地过"的情况（还挂在楼缝里、永远不睡）。
+       所以：
+          · 还没静置 → 用硬寿命兜底（保证不会泄漏）；
+          · 已经静置 → 用 settleAt + REST_LINGER，**不**和硬寿命取 max。
+       这样"落地 → 停 2.6 秒 → 淡出 1.3 秒"才是逐块发生的、错开的、
+       肉眼能看到的曲线。 */
+    markSettled(d);
+    const bornS = d.bornAt / 1000;         // 出生时刻（秒）
+    const settleS = d.settleAt / 1000;     // 静置时刻（秒）
+    const deadAt = d.settled ? (settleS + lingerSec)   // 已落地：残留计时从落地起算
+                             : (bornS + lifeSec);      // 仍在飞：硬寿命兜底
+    if (now > deadAt) {
+      d.dying = Math.min(1, (now - deadAt) / fadeSec);
+      if (d.dying >= 1) { releaseSlot(d); continue; }
+    }
+
+    const s = d.dying > 0 ? (1 - d.dying) : 1;   // 淡出：缩小 + 变暗
+    _v3.set(b.position.x, b.position.y, b.position.z);
+    d.q.set(b.quaternion.x, b.quaternion.y, b.quaternion.z, b.quaternion.w);
+    d.scl.set(s, s, s);
+    _m4.compose(_v3, d.q, d.scl);
+    flyMesh.setMatrixAt(i, _m4);
+
+    if (d.dying > 0) {
+      const k = 1 - d.dying * 0.88;              // 变暗辅助淡出观感
+      colorArr[i * 3]     = d.col.r * k;
+      colorArr[i * 3 + 1] = d.col.g * k;
+      colorArr[i * 3 + 2] = d.col.b * k;
+      flyColorDirty = true;
+    }
+  }
+  flyMesh.instanceMatrix.needsUpdate = true;
+  if (flyColorDirty) { flyMesh.instanceColor.needsUpdate = true; flyColorDirty = false; }
+}
+
+/* ============================== 建筑（体素体） ============================== */
+/* ── 架构说明 ────────────────────────────────────────────────────────────
+   体素边长 0.1，一栋楼有几万个方块。这里**不**为每个方块建 JS 对象
+   （那样 20 栋楼要 200+ MB，浏览器直接崩）。改用「结构网格」：
+
+     grid   : Uint8Array(W*D*H)   —— 唯一数据源，1 = 实心（可破坏），0 = 空
+     meshes : InstancedMesh 若干   —— 纯渲染层，实例下标 ↔ 网格坐标可互算
+     alive  : Uint8Array(W*D*H)   —— 位图，1 = 该格还在（其实等于 grid，但独立
+                                    一份便于"结构还在但视觉已移除"的过渡态）
+
+   内存：一栋 80×80×220 的网格 = 1.4 MB，20 栋 28 MB。相比"每块一个 Vector3"
+   的 217 MB，这是能跑和不能跑的区别。
+
+   渲染：按材质分 3 组（body / trim / glass），每组一个 InstancedMesh。
+   由于实例下标必须能反查网格坐标，每个 mesh 配一份 Int32Array 索引表
+   （存的是 grid 的线性下标），删块时 O(1) 定位。
+   ────────────────────────────────────────────────────────────────────── */
+const buildings = [];
+let totalVoxels = 0;
+/* 生成阶段"把悬空壳格接回地面"补了多少格 —— 纯统计/自检用。
+   正常应该很小（全城几十格量级），如果突然变大说明又会积木轮廓改出问题了。 */
+let BUILD_REPAIRS = 0;
+
+const STATIC_VOX_MAT = [];   // 静态楼体的材质（保留：记录每楼调色板，便于排查）
+
+/* ── 分块合并渲染（帧率重构的核心）────────────────────────────────────
+   旧方案：每栋楼 × 4 种材质各一个 InstancedMesh，44 栋 ≈ 170 个 mesh。
+   它们还全部 frustumCulled=false（实例摆不进 mesh 自身的包围球，只能关），
+   于是每帧主 pass + 阴影 pass 把**全城每个方块**都提交一遍 —— 帧率主瓶颈。
+
+   新方案：全城按空间切成 CHUNK_N×CHUNK_N 块，**每个 chunk 一个 InstancedMesh**
+   （四种材质的颜色全部写进 instanceColor，不再需要按材质拆 mesh）。
+     · draw call：≤9 个（一般只有 3~5 个在视锥内），主/阴影两遍都受益。
+     · 删块：楼在自己的 [base, base+used) 实例区间内 swap-remove，互不干扰；
+       被挪动的实例**矩阵和颜色必须一起搬**（颜色不搬会出现明暗错位）。
+     · 视锥剔除：按 chunk 的 AABB 整块开关 visible（updateChunkVisibility），
+       被剔除的 chunk 主 pass 和 shadow pass 都完全不跑顶点。 */
+const CITY_MAT = new THREE.MeshLambertMaterial({ color: 0xffffff });
+const CHUNK_N = 5;                 // 5×5 = 25 块。⚠️ 3×3 时块太大（~27 世界单位），
+                                   // 相机又在城市内部 —— 每块 AABB 都和视锥相交，
+                                   // 实测剔除数恒为 0。5×5（块 ~16 单位）才有剔除收益。
+const CHUNKS = [];                 // { im, used, minX,maxX,minZ,maxZ, yMax }
+
+/* 删块用的零矩阵（缩放到 0 = 退化三角形，GPU 端零像素成本）与复用临时量 */
+const _zeroM4 = new THREE.Matrix4().makeScale(0, 0, 0);
+const _tmpM4 = new THREE.Matrix4();
+const _chunkBox = new THREE.Box3();
+const _chunkMat4 = new THREE.Matrix4();
+const _frustum = new THREE.Frustum();
+const _projScreen = new THREE.Matrix4();
+
+/* 把所有楼暂存的实例写进 chunk mesh。
+   必须在 buildCity 的建楼循环**全部结束之后**调用一次（楼数已知才能分块）。 */
+function commitCity() {
+  disposeCityMeshes();                       // 防御：重复 commit 先清旧的
+  CHUNKS.length = 0;
+  if (buildings.length === 0) return;
+
+  /* 1) 全城包围盒（从实际楼分布取，不依赖 CFG 数值）→ 每楼归入一个 chunk */
+  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity, yMax = 0;
+  for (const b of buildings) {
+    const ex = b.W * V / 2 + V, ez = b.D * V / 2 + V;
+    if (b.cx - ex < minX) minX = b.cx - ex;
+    if (b.cx + ex > maxX) maxX = b.cx + ex;
+    if (b.cz - ez < minZ) minZ = b.cz - ez;
+    if (b.cz + ez > maxZ) maxZ = b.cz + ez;
+    if (b.H * V > yMax) yMax = b.H * V;
+  }
+  const spanX = Math.max(1e-3, maxX - minX), spanZ = Math.max(1e-3, maxZ - minZ);
+  for (const b of buildings) {
+    const ix = Math.min(CHUNK_N - 1, Math.max(0, Math.floor(((b.cx - minX) / spanX) * CHUNK_N)));
+    const iz = Math.min(CHUNK_N - 1, Math.max(0, Math.floor(((b.cz - minZ) / spanZ) * CHUNK_N)));
+    b._chunk = iz * CHUNK_N + ix;
+  }
+
+  /* 2) 统计每 chunk 的实例总数并建 mesh（四种材质合并成 1 个）
+     ⚠️ chunkByIndex 按原始网格下标（0..CHUNK_N²-1）对齐 —— CHUNKS 是
+        "只含非空块"的紧凑列表，两者下标系不同。曾经直接用
+        CHUNKS[b._chunk] 取：一旦某个 chunk 为空（25 格里实测有 4 个），
+        它后面的所有楼都会错位写入别的 chunk → 缓冲区溢出，
+        渲染成横穿全城的巨大三角形楔形 + 彩虹噪点楼。
+        （审计方法：对比 InstancedMesh 的 count 与 cap —— 溢出时 count > cap。） */
+  const counts = new Int32Array(CHUNK_N * CHUNK_N);
+  for (const b of buildings)
+    for (const k in b.groups) counts[b._chunk] += b.groups[k].used;
+  const chunkByIndex = new Array(CHUNK_N * CHUNK_N).fill(null);
+  for (let c = 0; c < CHUNK_N * CHUNK_N; c++) {
+    const cap = counts[c];
+    if (cap === 0) continue;
+    const im = new THREE.InstancedMesh(VOX_GEO, CITY_MAT, cap);
+    im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    im.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(cap * 3), 3);
+    im.castShadow = true;
+    im.receiveShadow = true;
+    im.frustumCulled = false;   // three 的包围球剔除对实例无效，走下面的手动版
+    im.count = 0;
+    scene.add(im);
+    const entry = { im, used: 0, minX: Infinity, maxX: -Infinity, minZ: Infinity, maxZ: -Infinity, yMax: 0 };
+    CHUNKS.push(entry);
+    chunkByIndex[c] = entry;
+  }
+
+  /* 3) 逐楼写入实例：base 偏移 + 世界坐标矩阵 + instanceColor */
+  for (const b of buildings) {
+    const chunk = chunkByIndex[b._chunk];
+    if (!chunk) continue;
+    const im = chunk.im;
+    const ex = b.W * V / 2 + V, ez = b.D * V / 2 + V;
+    if (b.cx - ex < chunk.minX) chunk.minX = b.cx - ex;
+    if (b.cx + ex > chunk.maxX) chunk.maxX = b.cx + ex;
+    if (b.cz - ez < chunk.minZ) chunk.minZ = b.cz - ez;
+    if (b.cz + ez > chunk.maxZ) chunk.maxZ = b.cz + ez;
+    if (b.H * V > chunk.yMax) chunk.yMax = b.H * V;
+
+    for (const k in b.groups) {
+      const g = b.groups[k];
+      g.im = im;
+      g.base = chunk.used;
+      for (let i = 0; i < g.used; i++) {
+        _chunkMat4.makeTranslation(g.tx[i], g.ty[i], g.tz[i]);
+        im.setMatrixAt(g.base + i, _chunkMat4);
+        const ca = im.instanceColor.array, o3 = (g.base + i) * 3;
+        ca[o3] = g.col[i * 3]; ca[o3 + 1] = g.col[i * 3 + 1]; ca[o3 + 2] = g.col[i * 3 + 2];
+      }
+      chunk.used += g.used;
+    }
+  }
+  for (const c of CHUNKS) {
+    c.im.count = c.used;
+    c.im.instanceMatrix.needsUpdate = true;
+    c.im.instanceColor.needsUpdate = true;
+  }
+}
+
+function disposeCityMeshes() {
+  for (const c of CHUNKS) { scene.remove(c.im); c.im.dispose(); }
+  CHUNKS.length = 0;
+}
+
+/* 每帧按相机视锥整块开关 chunk —— 朝向半个城市时体素直接砍半 */
+function updateChunkVisibility() {
+  camera.updateMatrixWorld();
+  _projScreen.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+  _frustum.setFromProjectionMatrix(_projScreen);
+  let vis = 0;
+  for (const c of CHUNKS) {
+    _chunkBox.min.set(c.minX, 0, c.minZ);
+    _chunkBox.max.set(c.maxX, c.yMax, c.maxZ);
+    const v = _frustum.intersectsBox(_chunkBox);
+    c.im.visible = v;
+    if (v) vis++;
+  }
+  return vis;
+}
+
+/* 材质组里"抹掉"一个方块。swap-remove：把该楼区间内最后一个实例挪到空位，
+   保持 [base, base+used) 段紧凑。
+   ⚠️ 两个分块合并带来的变化：
+     1) 实例槽要加 g.base 偏移（楼只占 chunk mesh 里自己那段）；
+     2) chunk mesh 的 count 是**全 chunk 共享**的，不能缩 ——
+        腾出的最后一格写成零矩阵（退化三角形），渲染上等价于消失。
+   ⚠️ 矩阵和颜色必须一起搬：颜色是逐格的明暗扰动，只搬矩阵会错位
+      （旧实现只搬矩阵，删过块之后扰动会串位 —— 这里顺手修掉）。
+   ⚠️ 它会把 index 表打乱，所以调用方必须通过返回的 newIdx 修正自己的索引。 */
+function eraseVox(g, slot) {
+  const last = g.used - 1;
+  const im = g.im, base = g.base;
+  if (slot !== last) {
+    im.getMatrixAt(base + last, _tmpM4);
+    im.setMatrixAt(base + slot, _tmpM4);
+    const ca = im.instanceColor.array;
+    const s3 = (base + slot) * 3, l3 = (base + last) * 3;
+    ca[s3] = ca[l3]; ca[s3 + 1] = ca[l3 + 1]; ca[s3 + 2] = ca[l3 + 2];
+    im.instanceColor.needsUpdate = true;
+    g.index[slot] = g.index[last];
+  }
+  im.setMatrixAt(base + last, _zeroM4);
+  g.used = last;
+  g.count = last;
+  im.instanceMatrix.needsUpdate = true;
+  return g.index[slot];   // 被挪过来的那个 lidx（-1 表示没有）
+}
+
+function buildCity() {
+  /* ⚠️ 这里原来写 `const R = CFG.CITY` —— 而 CFG.CITY 早就删掉了
+     （城市半宽改由 CITY_RINGS × CITY_CELL 推导），取到的是 undefined，
+     于是下面用 R 的地方全都算成 NaN（楼高变 NaN → 一栋楼都盖不出来）。
+     现在把 RINGS 直接取出来用。 */
+  const rand = (a, b) => a + Math.random() * (b - a);
+  const randInt = (a, b) => Math.floor(rand(a, b + 1));
+
+  /* ── 街区布局 ──────────────────────────────────────────────────────
+     地块边长 CELL，地块之间留 STREET 宽的路。
+
+     ⚠️ 关键修正：原来"一个地块只放一栋楼"，结果 49 个地块里 25 个是空的，
+        而且每栋楼只用掉地块 63% 的面宽 —— 从高处看是一片空场地上零散立着几根柱子，
+        完全不像城市。
+
+     现在改成**每个地块切成 2×2 = 4 个建筑基位**：
+       地块铺装 7.6 见方 ÷ 2 = 3.8 见方 / 位，正好容得下 3.2~4.8 的楼底面。
+       49 个地块 × 4 = 196 个基位，随便挑 N 个盖楼，
+       既能把城市填满，也能留出街区内部的空地/广场（真实城市也是这样）。
+     ────────────────────────────────────────────────────────────────── */
+  const CELL = CFG.CITY_CELL;                       // 地块边长（世界单位）
+  const STREET = CFG.CITY_STREET;                   // 街道宽（世界单位）
+  const RINGS = CFG.CITY_RINGS;
+  const PLOT = CELL - STREET;                       // 地块铺装边长
+  const SUB = PLOT / 2;                             // （旧）子基位边长 —— 现已不用，保留供注释对照
+  /* ⚠️⚠️ 这里从"每地块 4 个子基位"改成"每地块 1 栋楼"，是"楼太丑"的
+     结构性根因修复，不是外观微调。
+
+     老做法把 7.6 见方的地块切成 2×2 四个 3.8 的子基位，再乘 0.88
+     → 每栋楼的上限只有 3.34 世界单位 = **8 格**（V=0.4）。
+     而 V=0.4 时一个窗周期要 3~4 格 —— 8 格宽的立面**只排得下 2 扇窗**。
+     实测全城 56 栋楼的核心宽**恒等于 8 格**（区间 [8,8]），
+     也就是说不管立面规则写得多细致，每面永远只有 2 扇窗可看。
+     这不是美学问题，是"画布太小"：再好的立面算法也无处施展。
+
+     改成一地块一楼之后，上限提到 PLOT×0.86 ≈ 6.54 = **16 格**，
+     一栋楼每面能排 4~5 扇窗 —— 这才是"小区居民楼"该有的信息量。
+     顺带地，楼距拉开到地块尺寸，更接近真实小区的行列式布局。 */
+  const slots = [];
+  for (let gx = -RINGS; gx <= RINGS; gx++) {
+    for (let gz = -RINGS; gz <= RINGS; gz++) {
+      slots.push({ cx0: gx * CELL, cz0: gz * CELL });
+    }
+  }
+  /* 打乱后按顺序铺楼 —— 避免"总在同一个角落起楼" */
+  for (let i = slots.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [slots[i], slots[j]] = [slots[j], slots[i]];
+  }
+
+  /* 楼最大占地：铺装地块的 86%（留出楼间缝隙，避免两栋楼贴在一起）
+     ⚠️ 基数必须是 PLOT（整块铺装），不能是旧的 SUB（= PLOT/2）——
+        用 SUB 会让上限腰斩回 8 格，又把楼压回"只有 2 扇窗"的样子。 */
+  const maxFoot = PLOT * 0.86;
+  const CENTER_CLEAR = CELL * 1.2;                  // 出生广场保护区半径
+
+  /* ── 尺寸策略（关键）──────────────────────────────────────────────
+     体素 0.1 时，外壳格数 ≈ 2wd + 2h(w+d)（w,d,h 是格数）。
+     楼"宽"的代价是平方级的（顶面 w·d），楼"高"的代价只是线性（周长 × h）。
+
+     实测（CAP=30000，细长比 = 高/宽）：
+        底面 32×28 → 高 243 格，细长比 1:7.6，外壳 2.97 万   ← 太瘦（像烟囱）
+        底面 40×34 → 高 189 格，细长比 1:4.7，外壳 2.96 万   ← 好
+        底面 48×40 → 高 152 格，细长比 1:3.2，外壳 2.96 万   ← 好
+        底面 64×54 → 高  99 格，细长比 1:1.5，外壳 2.94 万   ← 太矮胖
+
+     真实塔楼细长比：希尔斯 1:6.4、帝国大厦 1:5.9（含塔尖）、上海中心 1:7.6，
+     普通 30 层写字楼 1:3.0。所以本作取 **1:3 ~ 1:6** 最像真楼。
+
+     ⚠️ 上一版把底面收到 1.6~2.8 世界单位（= 16~28 格），换算成细长比是 1:8~1:12，
+        这不是楼，是电线杆 —— 这就是"楼太丑"的根因。
+     ────────────────────────────────────────────────────────────── */
+  const shellCells = (w, d, h) => {
+    const ww = Math.max(1, w), dd = Math.max(1, d), hh = Math.max(1, h);
+    return ww * dd * 2 + 2 * ww * Math.max(0, hh - 2) + 2 * dd * Math.max(0, hh - 2)
+           - 4 * Math.max(0, hh - 2);
+  };
+  /* 反解：给定底面与格数上限，能撑到多高 */
+  const maxHfor = (w, d, cap) => {
+    const den = 2 * (w + d) - 4;
+    const num = cap - 2 * w * d;
+    return den > 0 ? Math.floor(num / den) : 0;
+  };
+
+  for (const s of slots) {
+    if (buildings.length >= CFG.BLD_COUNT) break;
+    /* 出生广场：中心一圈不盖楼，给玩家留出开场空间 + 开阔的广场视野 */
+    if (Math.hypot(s.cx0, s.cz0) < CENTER_CLEAR) continue;
+
+    /* ── 目标细长比：越靠市中心越瘦高，外围矮胖（板楼/裙房）──
+       ⚠️⚠️ 这一版把细长比整体**压扁了**，是"楼太丑"的根因之一。
+          上一版是 2.6（外围）→ 5.6（市中心），
+          也就是市中心那栋楼 高:宽 = 5.6:1 —— 那是**超高层写字楼**的量级。
+          而"现代小区居民楼"的真实比例完全不同：
+            · 板楼（多层/小高层）：进深大、面宽长，高:宽 ≈ 1.5 ~ 2.5
+            · 塔楼（高层住宅，最常见的 18~33 层）：高:宽 ≈ 2.5 ~ 3.5
+          住宅之所以"矮胖"，是因为户型要采光 —— 一梯多户摊开，面宽必然大。
+              写字楼可以做成细杆，住宅做不成。
+          所以改成 1.8（外围板楼）→ 3.4（市中心塔楼），
+          既保留"市中心更高"的层次，又让每栋楼落在住宅的合理比例带里。 */
+    const distCenter = Math.min(1, Math.hypot(s.cx0, s.cz0) / (RINGS * CELL));
+    const heightK = Math.pow(1 - distCenter, 1.3);      // 0(外围) .. 1(市中心)
+    const targetSlender = 1.8 + 1.6 * heightK;
+
+    /* ── 底面：先按区域定基准宽，再按细长比反推高度 ──
+       ⚠️ 不能用 `Math.max(16, ...)` 那种硬下限 —— 那样全城楼宽会
+          一起撞在同一个数值上（实测就是因为旧下限 + maxFoot 上限
+          双重夹逼，导致 56 栋楼宽**完全相同**）。
+          改成"按上限取比例"，宽度才会真的散开：
+            外围（heightK=0）取 0.74 ~ 1.02 倍上限
+            市中心（heightK=1）再乘 0.90 收一点，但不至于变成电线杆。 */
+    const maxCells = Math.floor(maxFoot / V);
+    const footK = rand(0.74, 1.02) * (1.06 - 0.16 * heightK);
+    let wC = Math.round(maxCells * footK);
+    let dC = Math.round(wC * rand(0.78, 0.96));     // 真楼极少正方脸
+    wC = Math.max(10, Math.min(maxCells, wC));
+    dC = Math.max(10, Math.min(maxCells, dC));
+    if (wC % 2) wC++;
+    if (dC % 2) dC++;
+
+    /* 按细长比求高（用短边算，保证视觉上够修长） */
+    let hC = Math.round(Math.min(wC, dC) * targetSlender);
+    /* 夹到 CFG 给的高度范围 */
+    const hMin = Math.round(CFG.BLD_MIN_H / V), hMax = Math.round(CFG.BLD_MAX_H / V);
+    hC = Math.max(hMin, Math.min(hMax, hC));
+
+    /* ── 格数预算兜底 ──
+       超过 cap 时**先削高度**（高度是可再生的观感），
+       削到 60% 还超标才收底面 —— 底面一收就变电线杆，宁可矮一点。 */
+    const cap = CFG.BLD_MAX_CELLS;
+    const hCap = maxHfor(wC, dC, cap);
+    if (hCap > 0 && hC > hCap) hC = Math.max(60, hCap);
+    if (shellCells(wC, dC, hC) > cap) {
+      hC = Math.max(60, Math.round(hC * 0.75));
+      let guard = 0;
+      while (shellCells(wC, dC, hC) > cap && guard++ < 40) {
+        if (wC > 20 && wC >= dC) wC -= 2;
+        else if (dC > 20) dC -= 2;
+        else if (hC > 40) hC -= 2;
+        else break;
+      }
+    }
+
+    buildings.push(makeBuilding(s.cx0, s.cz0, wC, dC, hC));
+  }
+
+  /* 所有楼建完 → 把各楼暂存的实例按空间分块提交成 chunk InstancedMesh。
+     ⚠️ 必须放在循环外：分块需要全城包围盒（楼数已知）。 */
+  commitCity();
+}
+
+/* ── 楼型生成 ────────────────────────────────────────────────────────────
+   只在「外壳」生成方块（6 个面各一层）。内部的格子完全不生成 —— 反正看不到，
+   而且爆炸削下去的下一层就是"外壳的内侧"，视觉上始终是实心墙。
+   ────────────────────────────────────────────────────────────────────── */
+function makeBuilding(cx, cz, wC, dC, hC) {
+  /* ── 楼型参数先算（网格尺寸要据此预留余量）── */
+  /* 三选一：glass 幕墙 45% / stone 石塔 33% / brick 砖楼 22%。
+     玻璃占多数是刻意的 —— 现代城市天际线的第一读感就是玻璃。 */
+  const stRoll = Math.random();
+  const style = stRoll < 0.45 ? 'glass' : (stRoll < 0.78 ? 'stone' : 'brick');
+  const palArr = PALETTES[style];
+  const pal = palArr[Math.floor(Math.random() * palArr.length)];
+  const mats = makeVoxMaterials(pal, style);
+  STATIC_VOX_MAT.push(mats);
+
+  /* ── 立面参数 ────────────────────────────────────────────────────
+     ⚠️ 下面的 FLOOR_H / WIN_W / WIN_GAP / PODIUM_OUT 全部是**格数**，
+        不是世界单位，所以 V 从 0.1 改到 0.4 时它们不需要按比例换算 ——
+        但**必须重新标定**，因为楼现在的格宽只有 8~12 格（原来 32~48 格）：
+          原来：周期 6 格 → 40 格宽排 6~7 扇窗，密柱感
+          现在：周期 6 格 → 10 格宽只排 1.7 扇，立面变成"一个大洞"
+        所以周期压到 3~4 格（在 8~12 格里给出 2~4 扇窗），这才有"立面"可读。
+
+     ══ 窗墙面积比（这一版最重要的一处修正）════════════════════════════
+     ⚠️⚠️ 上一版我把玻璃风格的窗做得又大又密（WIN_W=2 / WIN_GAP=1），
+          算下来窗墙比 ≈ 0.67 —— 那是**写字楼幕墙**，不是住宅。
+          查证到的事实（GB 55015-2021《建筑节能与可再生能源利用通用规范》
+          表 3.1.4 居住建筑窗墙面积比限值）：
+
+             朝向      严寒    寒冷    夏热冬冷   夏热冬暖   温和A
+             北       ≤0.25   ≤0.30   ≤0.40     ≤0.40     ≤0.40
+             东、西   ≤0.30   ≤0.35   ≤0.35     ≤0.30     ≤0.35
+             南       ≤0.45   ≤0.50   ≤0.45     ≤0.40     ≤0.50
+
+          这是**强制性国家规范**，住宅的窗墙比是有法定上限的。
+          取夏热冬冷（中国大部分人口密集区所在气候区）：南 ≤0.45、东西 ≤0.35。
+          所以住宅立面读起来是"**以浅色墙面为主、窗为点缀**"，
+          而不是上一版那种"整片玻璃 + 细窗间墙"。
+
+          在体素上，一层的立面周期 = WIN_W + WIN_GAP：
+            窗墙比 ≈ WIN_W / (WIN_W + WIN_GAP)
+          反解出各风格的目标窗墙比：
+            glass（偏公建化的高端住宅，取上限）: 0.45 → WIN_W=2, WIN_GAP=2.5 → 取 (2,3) = 0.40
+            brick（普通商品住宅）:              0.35 → (1,2) = 0.33
+            stone（石材线脚住宅，窗更小）:        0.30 → (1,3) = 0.25
+          ⚠️ 体素是整数格，没法精确到 0.45，取"不超过限值"的整数解即可。
+
+     每层的高度分配（FH=4，有封闭阳台带的风格）：
+       local 0     : 腰线 trim（横向束带，只占 1 格）
+       local 1     : 窗（punched，按 WIN_W/WIN_GAP 排的独立窗）
+       local 2     : **封闭阳台带**（通长玻璃，住宅最强的识别特征）
+       local 3     : 窗楣（上层楼板 / 石材浅檐）
+     ⚠️ 阳台带占掉一整行，所以"有效窗墙比"要按**行加权**算，不能只看
+        横向的 WIN_W/(WIN_W+WIN_GAP)：
+
+          有效比 = 本层内所有玻璃格 / 本层立面总格
+
+          glass : 3 行窗（local 0/1/2）× 2/4 = 0.375，无阳台带
+          stone : 1 行 punched × 1/4 + 1 行阳台带 × 1 = 0.3125
+          brick : 1 行 punched × 1/3 + 1 行阳台带 × 1 = 0.333
+
+        三者都落在夏热冬冷区"南向 ≤0.45 / 东西 ≤0.35"的限值内 ——
+        封闭阳台的玻璃本来就计入窗墙比，所以加了带子仍然合规。 */
+  const stylePar = {
+    /* 现代简约住宅（公建化立面，窗墙比取上限）：竖线密、玻璃略多 */
+    glass: { FH: 4, WIN_W: 2, WIN_GAP: 2, VBAR: 4, HSILL: 0 },
+    /* 石材线脚住宅：层高高、窗小、竖向收边中等 */
+    stone: { FH: 4, WIN_W: 1, WIN_GAP: 3, VBAR: 4, HSILL: 1 },
+    /* 砖/涂料普通商品住宅：窗小而密、竖线最疏
+       ⚠️ FH 从 3 提到 4：3 格一层时，腰线 + 窗 + 阳台带会挤在同一行上，
+          阳台带会把唯一的窗行吃掉（立面变成"整层玻璃"）。 */
+    brick: { FH: 4, WIN_W: 1, WIN_GAP: 2, VBAR: 4, HSILL: 1 },
+  }[style];
+  const FLOOR_H = stylePar.FH;                       // 层高（格）
+  const WIN_W = stylePar.WIN_W;                      // 窗宽（格）
+  const WIN_GAP = stylePar.WIN_GAP;                  // 窗间墙（格）
+  const VBAR = stylePar.VBAR;                        // 每几格一根竖向深色收边
+  const HSILL = stylePar.HSILL;                      // 楼层线加粗（格）
+  const nFloors = Math.max(2, Math.floor(hC / FLOOR_H));
+  /* 实际窗墙比（只用于自检/注释，不参与几何）。 */
+  const WIN_RATIO = WIN_W / (WIN_W + WIN_GAP);
+
+  /* 裙楼：底部 2~4 层外扩，做出"商业裙房"的体量感 */
+  const hasPodium = hC > 16 && Math.random() < 0.80;
+  const PODIUM_F = hasPodium ? Math.min(4, Math.max(2, Math.floor(nFloors * 0.26))) : 0;
+  const PODIUM_OUT = hasPodium ? Math.max(1, Math.round(rand2(1, 2))) : 0;  // 外扩格数
+
+  /* ── 网格尺寸 ────────────────────────────────────────────────────
+     ⚠️ 必须把裙楼外扩的余量算进去。
+     楼体的"标称"占位是 wC × dC，但裙楼会往外各伸 PODIUM_OUT 格。
+     如果网格只开 wC × dC，裙楼那一圈就会落在网格外 → 被 inB 丢掉，
+     结果底部几层整个消失，楼看起来"浮在半空"。
+     所以网格 = 标称 + 2 * PODIUM_OUT（双向各一份余量）。 */
+  const PAD = PODIUM_OUT;
+  const W = wC + PAD * 2;
+  const D = dC + PAD * 2;
+  let H = hC;
+
+  /* ⚠️ grid 必须是 let：屋顶细节（女儿墙/设备房/天线）会把楼往上加高，
+     加高时是"新建一个更高的 Uint8Array 再替换"。 */
+  let grid = new Uint8Array(W * D * H);
+  const idx = (x, y, z) => (y * D + z) * W + x;
+  const inB = (x, y, z) => x >= 0 && x < W && y >= 0 && y < H && z >= 0 && z < D;
+  /* 楼体在网格里的中心偏移（含 PAD） */
+  const CX = Math.floor(W / 2), CZ = Math.floor(D / 2);
+
+  /* ── 退台：从某个高度起楼体收进，做出阶梯轮廓 ──────────────────────
+     ⚠️ 收进量要克制。按 W 的百分比算会随楼宽放大：56 格宽的楼收 16% = 9 格，
+        每级收 9 格、连收两级 → 剪影变成"婚礼蛋糕"。
+        真楼（洛克菲勒、希尔斯）的退台通常每级只收 3~6% 的面宽，
+        而且**只在顶部收一两级**，主体是笔直的。所以这里：
+          - 用固定格数（3~7 格），不按百分比
+          - 退台起点推到 70% / 88% 高度，让主体保持完整
+          - 每级收进递减，越往上收得越少（塔冠更细） */
+  const setbacks = [];
+  if (nFloors >= 6) {
+    setbacks.push({ f: Math.round(nFloors * 0.68), inset: 1 });
+    if (nFloors >= 9) setbacks.push({ f: Math.round(nFloors * 0.86), inset: 2 });
+  }
+  const setbackAt = (f) => {
+    let ins = 0;
+    for (const s of setbacks) if (f >= s.f) ins = Math.max(ins, s.inset);
+    return ins;
+  };
+
+  /* 每层的左右边界（含裙楼外扩、退台收进）。
+     返回的是**相对楼体中心的格偏移**，配合 CX/CZ 换算成网格坐标。
+     标称半宽 = wC/2（网格里楼体占 CX-PAD .. CX+PAD+wC-1）。 */
+  const halfW = Math.floor(wC / 2), halfD = Math.floor(dC / 2);
+  const halfAt = (y) => {
+    const f = Math.floor(y / FLOOR_H);
+    let out = 0;
+    if (f < PODIUM_F) out = PODIUM_OUT;
+    const ins = setbackAt(f);
+    return {
+      x0: -halfW - out + ins,
+      x1: wC - 1 - halfW + out - ins,
+      z0: -halfD - out + ins,
+      z1: dC - 1 - halfD + out - ins,
+    };
+  };
+
+  /* ── 第一遍：填实心（外壳判定要用完整的"实心"信息）── */
+  for (let y = 0; y < H; y++) {
+    const b = halfAt(y);
+    for (let x = b.x0; x <= b.x1; x++) {
+      for (let z = b.z0; z <= b.z1; z++) {
+        const gx = x + CX, gz = z + CZ;
+        if (!inB(gx, y, gz)) continue;
+        grid[idx(gx, y, gz)] = 1;
+      }
+    }
+  }
+
+  /* ── 楼板层：轮廓发生变化的那一层，整层不做内部挖空 ─────────────────
+     ⚠️⚠️ 这一段补的是一个**结构性缺陷**，来由必须完整记下来。
+
+     症状：6 邻域连通性（groundedMask）把**任何一栋完好楼的塔楼段**
+           全判成"够不到地面的悬空块" —— 一跑坍塌分析，上半截整片垮掉。
+
+     根因：生成器是**空壳**的（第二遍只保留 6 个面），而
+           · 裙楼用外扩轮廓（外圈贴 x=PODIUM_OUT 那圈）
+           · 塔楼用收进轮廓（外圈再往里收 1~2 格）
+           两圈在 6 邻域下**可能完全不共面**（收进 2 格时中间隔着一整圈空），
+           于是塔楼和裙楼在结构上彻底断开。
+           现实里塔楼坐在裙楼屋顶板上，但"只造外壳"把裙楼顶面当中部清掉了 ——
+           承重路径就这样凭空消失。
+
+     ⚠️ 失败的修法一：在下层高度铺一整片"并集外接矩形"的实心楼板。
+        没用 —— 紧接着的第二遍会把这片楼板的内部全清零
+        （它认为那是"看不到的内部"），于是又变回空心环，塔楼依然坐在洞上。
+
+     ⚠️ 失败的修法二：在变化层补"下层轮廓的边框"或"两层之间的环带"。
+        仍然没用 —— 每补一次都要精确匹配两层轮廓的相邻关系，
+        收进 1 格时能用、收进 2 格就漏（实测某楼在裙楼顶接好了，
+        到第二个退台 y=21 又断一次）。典型的"按症状打补丁"，
+        边界一变就失效，而且失败是静默的（只是少连通一块）。
+
+     正确修法（本段）：**不改格子，改外壳提取的判据** ——
+        把"轮廓变化处"标记为**楼板层**，楼板层不做内部挖空。
+        理由：真实建筑里，退台/裙楼顶就是一块**连续的混凝土板**，
+        它本来就该是实心的：
+          · 结构上：上层塔楼要靠它把荷载摊到下层墙上（这正是要修的东西）
+          · 视觉上：它是露台地面，从街上抬头看到的就是一整块
+          · 代价上：只有轮廓变化处那 2~3 层是实心的，
+                    多出来的格数占全楼 5% 以内
+
+     ⚠️ 必须**同时**标记 y 和 y-1：
+        轮廓变化发生在 y（新轮廓从这层开始），而楼板跨在变化处 ——
+        把两层都设为实心，才能保证新轮廓的外墙一定和下面的实体共面相邻，
+        不管中间隔了几格。 */
+  const slabLayer = new Uint8Array(H);
+  for (let y = 1; y < H; y++) {
+    const a = halfAt(y - 1), c = halfAt(y);
+    if (a.x0 !== c.x0 || a.x1 !== c.x1 || a.z0 !== c.z0 || a.z1 !== c.z1) {
+      slabLayer[y - 1] = 1;
+      slabLayer[y] = 1;
+    }
+  }
+
+  /* ── 第二遍：只保留外壳（6 个面各一层） ──────────────────────────
+     ⚠️ 关键：不能只"决定渲染哪些"，必须把**内部的实心格真正清零**。
+     否则 grid 里内部格 = 1（代表"有实体"），但那些格子不参与渲染 ——
+     后果是：射线命中、镜头防穿墙都会把楼当成实心块，
+     而玩家看到的是空壳 → 手感完全对不上（炮弹在空气里炸、镜头被空气墙顶住）。
+     做法：先把"壳判定"写进一份独立位图，再据此重建 grid。
+
+     ⚠️ 例外：**楼板层（slabLayer）整层保留，不做内部挖空**。
+        理由见上面 slabLayer 的注释 —— 退台/裙楼顶必须是连续的板，
+        否则上层塔楼在 6 邻域下与地面断开，会被悬空块判定整片判塌。
+        这是唯一一处"内部格也算实心"的地方，而且它同时也是**可见面**
+        （露台地面），所以不会出现"看得见空气、打得着实体"那种不一致。 */
+  const N6 = [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]];
+  const shellMap = new Uint8Array(W * D * H);
+  for (let y = 0; y < H; y++) {
+    /* 楼板层：整层保留为实心 */
+    if (slabLayer[y]) {
+      const base = y * D * W;
+      for (let i = 0; i < D * W; i++) if (grid[base + i]) shellMap[base + i] = 1;
+      continue;
+    }
+    for (let x = 0; x < W; x++) {
+      for (let z = 0; z < D; z++) {
+        if (!grid[idx(x, y, z)]) continue;
+        for (const [dx, dy, dz] of N6) {
+          const nx = x + dx, ny = y + dy, nz = z + dz;
+          if (!inB(nx, ny, nz) || !grid[idx(nx, ny, nz)]) { shellMap[idx(x, y, z)] = 1; break; }
+        }
+      }
+    }
+  }
+  /* 重建：只留壳。显式 fill(0) + 逐个置 1，避免残留旧的内部标记。 */
+  const shellGrid = new Uint8Array(W * D * H);
+  for (let i = 0; i < shellGrid.length; i++) if (shellMap[i]) shellGrid[i] = 1;
+  grid = shellGrid;
+
+  /* ── 收尾修复：把**够不到地面的孤立壳格**接回地面 ──────────────────────
+     ⚠️⚠️ 这一段补的是"悬空块"的唯一残留来源，必须记清来由。
+
+     症状：全城建完之后，偶发 1~6 栋楼各有 **2 格**壳格不接地
+           （实测统计：56 栋里 0~6 栋中招，位置固定在
+            裙楼→塔楼过渡层的裙楼一侧，如 PAD=2 时 y=7 或 y=9）。
+
+     根因：`slabLayer` 的判据是"`halfAt(y-1)` 与 `halfAt(y)` 轮廓不同"，
+           它把过渡的**两层**都整层保留。但裙楼轮廓与塔楼轮廓之间
+           不是简单的"包含"关系 —— 两者在 X 与 Z 两个方向上的收进
+           可以来自不同的成因（`out`（裙楼外扩）与 `ins`（退台收进）），
+           某些组合下过渡层会出现**极少数只属于旧轮廓、又被新轮廓甩在外面**
+           的格子。它们被 `slabLayer` 保留为实体，但**下方那一层恰好不在
+           同一个格位上**（下一层的轮廓已经变了），于是在 6 邻域下悬空。
+
+     ⚠️ 为什么不用"继续加 slabLayer 规则"来修：
+        这是第三次遇到同一类问题了。前两次（补并集矩形、补轮廓边框）
+        都是"按症状打补丁"，收进 1 格能用、收进 2 格就漏 ——
+        因为问题的本质不是"补得不够"，而是**轮廓差分本身无法表达
+        '每个壳格都必须有一条向下的承重路径'这个要求**。
+        只要生成器还会产生任意轮廓组合，差分规则就会有漏网的组合。
+
+     正确修法（本段）：**不猜轮廓，直接验连通性并修**。
+        1. 从 y=0 全层做一次 6 邻域 BFS，标出所有"接地"的壳格
+        2. 对任何**没被标到**的壳格：沿 -Y 方向一路填到最近的接地格
+           （填成同材质位，最后统一按 body 分类）
+        这样不管轮廓怎么变，承重路径都一定成立；
+        代价只在极少数（实测全城 ≤ 十几格）需要补，
+        而且补出来的是一条**竖直的柱**，视觉上就是一根结构柱，
+        完全符合真实建筑（过渡处本来就有落地柱）。
+
+     ⚠️ 调用时机是这个 Solved 的关键 —— 见下面两处 call site。 */
+  const repairFloating = () => {
+    const seen = new Uint8Array(W * D * H);
+    const stack = [];
+    /* 1) 地面层全层入队 */
+    for (let x = 0; x < W; x++)
+      for (let z = 0; z < D; z++) {
+        const l = idx(x, 0, z);
+        if (grid[l] === 1 && !seen[l]) { seen[l] = 1; stack.push(l); }
+      }
+    /* 2) 6 邻域 BFS */
+    const stepX = 1, stepZ = W, stepY = D * W;
+    while (stack.length) {
+      const cur = stack.pop();
+      const x = cur % W;
+      const y = Math.floor(cur / stepY);
+      const z = Math.floor(cur / W) % D;
+      if (x > 0)     { const j = cur - stepX; if (!seen[j] && grid[j] === 1) { seen[j] = 1; stack.push(j); } }
+      if (x < W - 1) { const j = cur + stepX; if (!seen[j] && grid[j] === 1) { seen[j] = 1; stack.push(j); } }
+      if (z > 0)     { const j = cur - stepZ; if (!seen[j] && grid[j] === 1) { seen[j] = 1; stack.push(j); } }
+      if (z < D - 1) { const j = cur + stepZ; if (!seen[j] && grid[j] === 1) { seen[j] = 1; stack.push(j); } }
+      if (y > 0)     { const j = cur - stepY; if (!seen[j] && grid[j] === 1) { seen[j] = 1; stack.push(j); } }
+      if (y < H - 1) { const j = cur + stepY; if (!seen[j] && grid[j] === 1) { seen[j] = 1; stack.push(j); } }
+    }
+    /* 3) 修：对每个未接地的壳格，沿 -Y 填到遇到接地格为止 */
+    let repaired = 0;
+    const newCells = [];
+    for (let l = 0; l < grid.length; l++) {
+      if (grid[l] !== 1 || seen[l]) continue;
+      const x = l % W;
+      const y = Math.floor(l / stepY);
+      const z = Math.floor(l / W) % D;
+      /* 从这一格的下一层开始往下找最近的接地格 */
+      let ly = -1;
+      for (let yy = y - 1; yy >= 0; yy--) {
+        const j = (yy * D + z) * W + x;
+        if (seen[j]) { ly = yy; break; }
+      }
+      if (ly < 0) {
+        /* 整列都没有接地格 —— 只能接到地面 y=0 */
+        ly = 0;
+      }
+      /* 把 (ly, y) 之间的空位填实，形成落地柱。
+         ⚠️ 必须从 ly+1 开始 —— ly 本身就是那个已接地的格子，
+            从 ly 起步会在第一轮就撞上 `else if (seen[j]) break`
+            然后一格都不填（这个 bug 让整段修复变成空转）。 */
+      for (let yy = ly + 1; yy < y; yy++) {
+        const j = (yy * D + z) * W + x;
+        if (grid[j] !== 1) { grid[j] = 1; seen[j] = 1; repaired++; newCells.push(j); }
+        else if (seen[j]) break;                 // 已经接上了，不用再填
+      }
+      seen[l] = 1;
+    }
+    /* 4) 补完之后要重新跑一次 BFS 吗？
+       不必 —— 上面每修一格都同步 seen，且填的是"从最近接地格到自己"的
+       连续竖直段，所以修完的格子一定已接地。 */
+    if (repaired > 0) BUILD_REPAIRS = (BUILD_REPAIRS || 0) + repaired;
+    return newCells;
+  };
+  /* call site ①：紧跟壳重建之后。
+     这里补出来的格子会被下面的**材质分类循环**捡走，拿到正常的立面材质，
+     视觉上就是一根结构柱，而不是一根颜色突兀的柱子。 */
+  repairFloating();
+
+  const isShell = (x, y, z) => inB(x, y, z) && grid[idx(x, y, z)] === 1;
+
+  /* ── 第三遍：给外壳的每个格子分类材质 ──────────────────────────────
+     五种材质，各有明确职责（这是"立面有细节"的全部来源）：
+       glass : 窗玻璃（成排成列，全楼对齐）
+       dark  : 竖向收边（每 VBAR 格一根）+ 基座 + 电梯机房 —— 给立面加"线"
+       trim  : 屋顶面 / 楼层横向束带 / 女儿墙 / 转角柱
+       body  : 窗间墙（石材、砖柱的主体色）
+     分类顺序很重要：屋顶 → 基座 → 竖框 → 窗 → 楼层线 → 转角 → 窗间墙。
+     越靠前的优先级越高（先判定的先拿走）。 */
+  const lists = { body: [], trim: [], glass: [], dark: [] };
+  /* ⚠️ claimed：防止同一个 lidx 被 push 两次。
+     屋顶细节（女儿墙等）会往 lists 里塞"已经在外壳里的格子"，
+     重复会让 InstancedMesh 的 capacity 虚高、count 与真实数对不上，
+     进而出现"一半方块没渲染"的现象。
+     ⚠️ 它必须能跟着网格一起**长高**（楼体加高时同比例扩容），
+        所以下面用 claimGrow() 统一处理"换数组"。 */
+  let claimed = new Uint8Array(W * D * H);
+  /* ⚠️⚠️ 这里踩过一个非常隐蔽的坑，值得完整写下来。
+     原来的 addCell **只做两件事**：claimed 标记 + push 进 lists。
+     它**从来不把格子写进 grid** —— 因为在它最初的用法里，
+     它只服务于"给已经存在的壳格分类材质"（caller 已经在 shellGrid 里
+     置过 1 了，所以没问题）。
+
+     但后来加屋顶细节（女儿墙 / 电梯机房 / 天线 / 门厅雨棚）时，
+     这些代码**复用了 addCell**，而它们要加的是"原本不存在的格子"。
+     于是产生一批**幽灵实例**：
+       · lists 里有它 → InstancedMesh 里真的多渲染一个方块
+       · grid 里是 0   → 射线打不中它、爆炸摘不掉它、b.cells 也不含它
+     实测：8×8 规格的楼 730 格里 6 个是幽灵，56 栋里 46 栋中招。
+     它还有一个更麻烦的副作用：**楼是空壳**，一次爆炸削掉的外壳格里
+     幽灵格不参与 grid 计数、却在肉眼上占着位置，于是数字上表现为
+     "摘掉 206 格只生成 103 块碎块"这样一个精确的 2:1 ——
+     我为此查了好几轮，一度怀疑是碎块池或 detach 丢块。
+
+     修法：addCell 增加一个 solidify 开关，默认 true ——
+     **凡是 addCell 认领的格子，一律同时写进 grid**。
+     这样"lists 里的格"与"grid 里的格"严格一一对应，
+     上面那类不一致从结构上就不可能再出现。 */
+  let curG = grid;                       // 当前有效的网格数组（换壳 / 加高后会重绑）
+  const addCell = (lidx, kind, solidify = true) => {
+    if (lidx < 0 || lidx >= claimed.length) return false;
+    if (claimed[lidx]) return false;
+    claimed[lidx] = 1;
+    lists[kind].push(lidx);
+    if (solidify && lidx < curG.length) curG[lidx] = 1;
+    return true;
+  };
+  /* 换网格数组（外壳重建 / 屋顶细节加高）时统一走这里，
+     让 grid / curG / claimed 三者始终指向同一套尺寸。 */
+  const rebindGrid = (arr) => {
+    grid = arr; curG = arr;
+    if (claimed.length < arr.length) {
+      const bigger = new Uint8Array(arr.length);
+      bigger.set(claimed);
+      claimed = bigger;
+    }
+  };
+
+  /* ── 三段式构图（真实住宅立面的基本手法）──────────────────────────
+     查证到的做法：住宅立面普遍采用"基座 + 主体 + 顶部"三段式，
+     且给出定量的比例关系（来自高端住宅立面设计专题与建筑立面比例归纳）：
+       基座(Base)：约占总高 **1/8 ~ 1/6**，通常是底部 2~3 层，
+                   用石材/仿石铝板等厚重材质，增强稳重感
+       主体(Body)：占 **60%~70%**，是立面主体，靠开窗与线条做韵律
+       顶部(Crown)：占 **1/10 ~ 1/8**，用檐口线/女儿墙收边形成视觉终点
+     另一套常用的竖向三段比是 **2:5:3**（基座:墙身:顶部），
+     其要点是"上轻下重、严禁上大下小、底部一定要压得住"。
+     ⚠️ 这条同时解释了为什么上一版看着别扭：基座只有固定 2 格，
+        而楼高从 29 格到 65 格不等 —— 29 格的楼基座占比 6.9%（尚可），
+        65 格的楼基座只占 3%（几乎看不见）。基座高度必须**按层数算**。
+
+     所以：基座 = 2~3 层（且夹在总高的 1/8~1/6 之间），上取整到层。 */
+  const BASE_FLOORS = Math.min(3, Math.max(2, Math.round(nFloors / 8)));
+  const BASE_H = BASE_FLOORS * FLOOR_H;              // 基座高度（格）
+
+  /* 顶部收头段：女儿墙 + 顶部一两层的饰面加深，形成 Crown。
+     这里只算"顶部饰面从第几层开始"，供立面分类使用。 */
+  const CROWN_FLOORS = Math.max(1, Math.round(nFloors * 0.12));
+  const CROWN_Y = Math.max(BASE_H + FLOOR_H, (nFloors - CROWN_FLOORS) * FLOOR_H);
+
+  /* 玻璃窗位置：按"层 × 柱"的规律生成，同一栋楼全楼对齐 → 看起来才像真楼
+     ⚠️ 判定"这一格是否属于某个竖向面"必须看**该格是否暴露在该方向**，
+        不能只看它是不是在网格边界（裙楼/退台会让中间层的格子也贴边）。
+        所以这里接收 4 个方向的暴露标记，分别判断 X 面和 Z 面的窗。 */
+  const winAt = (u, y) => {
+    const f = Math.floor(y / FLOOR_H);
+    const local = y - f * FLOOR_H;
+    if (local <= HSILL - 1) return false;          // 楼层线（结构梁，不装窗）
+    if (local >= FLOOR_H - 1) return false;        // 窗顶留窗楣（上层楼板）
+    const period = WIN_W + WIN_GAP;
+    const phase = ((u % period) + period) % period;
+    return phase < WIN_W;                           // 落在窗宽内
+  };
+  /* 竖向分格线：与窗的周期**对齐**，落在窗与窗正中间。
+     ⚠️⚠️ 这一条是"立面太花"的根因，改动理由必须记下来。
+        原来写成 `u % VBAR === WIN_W % VBAR` —— 用**两套互不相干的模数**
+        （VBAR 与 WIN_W+WIN_GAP）取相位，结果竖线的位置与窗的位置
+        没有对齐关系，肉眼看起来就是"到处一条条黑杠"。
+        实测一栋 12 格宽的楼，立面只有 7 格暴露，
+        而 VBAR=4 会在其中插进 2 条 full-height 深色竖条 ——
+        7 格里 2 条黑杠，立面直接变成条形码。
+
+        正确做法：竖线就是**窗间墙的中线**，一个窗周期最多一条，
+        且用 trim（辅助色）不用 dark —— 它是"分格缝"，
+        真实住宅的分格缝是略深一点的凹槽，不是黑条。
+        dark 只留给基座勒脚、空调位、门洞那种真正的小面积构件。 */
+  const vbarAt = (u) => {
+    const period = WIN_W + WIN_GAP;
+    if (period < 3) return false;                  // 周期太窄，挤不下分格线
+    const phase = ((u % period) + period) % period;
+    /* 窗间墙的中线：窗占 [0, WIN_W)，窗间墙占 [WIN_W, period)，
+       中线 = WIN_W + floor(WIN_GAP / 2)。取模后比较。 */
+    const mid = WIN_W + Math.floor(WIN_GAP / 2);
+    return phase === mid && mid < period;
+  };
+
+  /* ══════════════════════════════════════════════════════════════════════════
+     立面分类：按**现代小区高层住宅**的真实做法来分材质/构件。
+
+     ⚠️⚠️ 这一版是**查证过真实设计做法**之后重写的，不是凭印象编的。
+        参考要点（来自中国各城市住宅品质提升设计指引与建筑设计手册，
+        这些文件对现代住宅立面的要求高度一致，可以当作行业事实）：
+
+          ① **三段式构图**是住宅立面的基本手法：
+             "采用三段式建筑形式，根据建筑高度的不同，选择合适比例关系"。
+             即 基座（近人尺度）+ 标准层段 + 顶部收头段。
+          ② **基座必须用高质感材料**：
+             "住宅基座部分及公服配套建筑应采用石材、陶板、金属板等
+              富有质感的高品质建筑材料，提高近人尺度效果"。
+             所以底部几层单独走"基座色"，与上部拉开。
+          ③ **腰线要小巧精致**：
+             "从严控制建筑立面腰线层构造的形态和尺寸，做到腰线尽量小巧、
+              精致，减少对户内采光通风的影响"。
+             → 腰线只占 1 格，绝不能做成粗大横带（那是最常见的外行做法）。
+          ④ **窗套 / 窗台板要有凹凸**：
+             "现代住宅设计最大的变化是设置窗台板，窗不再是一个平面，
+              而是折线形的多个平面……外立面有凹凸变化，虚实对比"。
+             → 窗的上沿/下沿各加一格线脚，让窗"镶"在墙里。
+          ⑤ **空调机位是住宅立面的标志性构件**：
+             "在放置空调机的凹槽使用水平方向或纵向的百叶装饰线条"、
+             "空调位尽量考虑结合阳台、露台布置；尽量做到外墙凹进部位"。
+             → 每户一个空调位，用"百叶"材质（这里是深色格）表示。
+          ⑥ **阳台封闭化 + 玻璃栏板**：
+             "住宅南立面阳台应进行封闭设计，设备平台外侧维护设施
+              建议采用玻璃栏板"。
+             → 阳台做成竖向成组的玻璃段。
+          ⑦ **女儿墙要压顶出挑**：
+             "女儿墙横向压顶线条高度 150mm，出挑 100mm，防止雨滴脏污墙面"。
+             → 女儿墙顶那一格向外挑，顶部一格走浅色压顶。
+          ⑧ **山墙（侧面）要当主立面设计**：
+             "应加大山墙进深，充分体现建筑的稳重感、体量感"。
+             → 山墙给竖向通高线条，不做密集窗格。
+          ⑨ **色彩**："避免大面积采用高明度色、高纯度色、深暗色系，
+              宜综合运用主色、辅助色和点缀色"。
+             → 调色板已按此收敛（见 PALETTE_*）。
+
+     落到体素上的实现：材质只有 4 种（body / trim / glass / dark），
+     所以这些构件是靠**几何排布**表达的 —— 谁在哪里、占几格、什么颜色，
+     由下面的判据决定，优先级从上到下（先判定的先拿走）。
+
+     ⚠️⚠️ 这一版修正的核心问题是**明暗配比**。上一版的判据里
+        roof=trim / base=dark / 竖框=dark / 雨棚=dark / 电梯机房=dark /
+        天线=dark，而 body（浅色主色）只在"既不是窗、又不是线脚"的
+        剩余格子上出现 —— 结果整栋楼 60~70% 的格子是 mid-dark，
+        正撞在"避免大面积采用深暗色系"上，远景就是一片黑墩子。
+        修法：把 dark 的适用范围**收紧到只做点缀色**（基座外皮、竖框、门洞），
+        屋顶面改用**浅色**（真实屋面是浅灰防水层，本来就不该是黑的），
+        电梯机房改用 trim（混凝土盒子，中灰），天线保留 dark（细，占比极小）。
+        这样 body 稳定拿到立面面积的 45%+，才是"浅色墙面为主的住宅"。 */
+
+  /* ── 立面风格参数（按 style 取，与 PALETTE_* 成套）─────────────────
+     ⚠️ 层高 FLOOR_H / 窗宽 WIN_W / 窗间墙 WIN_GAP / 竖框间距 VBAR /
+        腰线厚 HSILL 这五个值在 makeBuilding 开头就已经按 style 定好了
+        （见上面的 stylePar）。这里的 `facade` 是**同一套值的具名引用**，
+        纯粹为了让下面的分类判据读起来有语义（facade.WIN_W 比 WIN_W 清楚），
+        不要再定义第二份数值 —— 两份数值一定会漂移。 */
+  const facade = { FH: FLOOR_H, WIN_W, WIN_GAP, VBAR, HSILL };
+  /* 下面这个别名只用于"这栋楼是不是石材楼"这类风格分叉判据，
+     避免在循环里反复写 style === 'stone'。 */
+  const isStoneStyle = style === 'stone';
+
+  /* 每层内相对高度 local（0 = 楼层线/腰线，越靠近 FLOOR_H-1 越是窗顶）：
+        local 0            → 腰线（trim，仅 HSILL>0 时）
+        local 1 .. FLOOR_H-2 → 窗与窗间墙
+        local FLOOR_H-1    → 窗楣（上层楼板，留给 trim/body） */
+  const bandLocal = facade.HSILL;                 // 腰线占用到第几格为止
+
+  /* 空调机位（⑤）：住宅立面的标志性构件。
+     真实做法是"每户一个、结合阳台布置、外侧加百叶"。
+     在体素上做成**成组的深色小方块**，每 VBAR*2 格一个、只占 1 格宽 × 1 格高，
+     贴在立面上 —— 这样 dark 有存在感但面积很小，符合"点缀色"的定位。 */
+  const acAt = (u, y) => {
+    const period = VBAR * 2;
+    const f = Math.floor(y / FLOOR_H);
+    const local = y - f * FLOOR_H;
+    /* 只放在每层的中段那一格，且横向每 period 格一个 */
+    if (local !== Math.max(1, Math.floor(FLOOR_H / 2))) return false;
+    return (((u % period) + period) % period) === Math.floor(period / 2);
+  };
+
+  /* ── 封闭阳台带（⑥）—— 住宅立面上**最强的识别特征** ──────────────
+     查证到的做法：
+       · "住宅南立面阳台应进行封闭设计"（多个城市的住宅品质提升指引都有这条）
+       · "设备平台外侧维护设施建议采用玻璃栏板"
+       · "阳台是住宅立面最重要的造型元素，其韵律感决定了立面是否'像住宅'"
+
+     为什么必须加：不加的话，楼面就是一格格的独立小窗 —— 那是**办公楼**
+     的立面对称图案。真实小区的立面上，每层都有一条**通长的玻璃横带**
+     （封闭阳台 / 落地窗），横带之间才是墙面与窗间墙。
+     横带这个"长横线"建立了水平韵律，一眼就能把住宅和写字楼分开。
+
+     体素实现：
+       · 带子所在行：整面连续 glass（通长，不再按 WIN_W/WIN_GAP 打洞）
+       · 竖向分格缝（vbarAt）仍然生效，会把长带切成一段段"各户的阳台"
+         —— 这正是真实立面的样子（一户一段，缝是户与户的分界）
+       · 转角（isCorner）不动，保持 trim 的角柱，阳台带不会绕到拐角上
+       · 基座段不做（基座是实墙 + 小窗，没有阳台）
+     ⚠️ 只在 brick / stone 上做 —— glass 风格本来就是通高幕墙，
+        再加一条"通长带"就没有虚实对比了，反而糊成一片。 */
+  const hasBalcony = style !== 'glass';
+  const balconyLocal = FLOOR_H - 2;                // 阳台玻璃带所在行
+
+  for (let y = 0; y < H; y++) {
+    const f = Math.floor(y / FLOOR_H);
+    const local = y - f * FLOOR_H;
+    const isBase = y < BASE_H;                      // 基座层（按层数算，见上）
+    const isBand = !isBase && local < bandLocal;    // 横向腰线（只占 1 格）
+    const isCrown = y >= CROWN_Y;                   // 顶部收头段
+
+    for (let x = 0; x < W; x++) {
+      for (let z = 0; z < D; z++) {
+        if (!isShell(x, y, z)) continue;
+        const lidx = idx(x, y, z);
+        /* 四个水平方向各自的暴露情况 */
+        const eX0 = !inB(x - 1, y, z) || !isShell(x - 1, y, z);
+        const eX1 = !inB(x + 1, y, z) || !isShell(x + 1, y, z);
+        const eZ0 = !inB(x, y, z - 1) || !isShell(x, y, z - 1);
+        const eZ1 = !inB(x, y, z + 1) || !isShell(x, y, z + 1);
+        const onXFace = eX0 || eX1;                   // 外侧是 X 向立面（窗沿 Z 排）
+        const onZFace = eZ0 || eZ1;                   // 外侧是 Z 向立面（窗沿 X 排）
+        const onTop = !inB(x, y + 1, z) || !isShell(x, y + 1, z);
+        const onBot = y === 0 || !inB(x, y - 1, z) || !isShell(x, y - 1, z);
+        const isCorner = onXFace && onZFace;           // 竖向角柱
+
+        let kind;
+        if (onTop) {
+          /* 屋面：**浅色**。真实屋面是浅灰防水卷材/浅色保护层，
+                而且"屋顶外表面宜采用浅色处理"以减少夏季吸热（规范原文）。
+                ⚠️ 上一版这里是 trim，远看屋顶一片中灰；
+                   实际从高空俯瞰城市时，屋顶是最显眼的面积之一，
+                   用浅色立刻让整片城区亮起来。 */
+          kind = 'body';
+        } else if (onBot) {
+          /* 底面：整栋楼最下面那层壳格，**从任何外部视角都看不到**
+             （它贴着地面）。给 body 浅色即可。
+             ⚠️ 曾经给它 dark —— 底面是一片 w×d 的整面（14×14 就是 196 格），
+                占了全楼 7% 的格子却一个像素都看不见，纯粹把"深色占比"
+                的统计搞脏。这类"看不到的格子"不该占用点缀色的预算。 */
+          kind = 'body';
+        } else if (isBase && (onXFace || onZFace)) {
+          /* ① 基座：底部 2~3 层的**外露面**。
+                这是最见效的一笔 —— 楼有了"脚"，不再像插在地上的柱子。
+                与真实做法一致："住宅基座部分应采用石材、陶板、金属板"、
+                "下部厚重、材质偏深、开窗小或封闭，强化稳重感"。
+
+                ⚠️⚠️ 材质拆成两层，是这一轮"去黑"的关键改动：
+                  最底下 2 格（贴地那圈）→ dark   深色石材勒脚
+                  其余基座               → trim   中色调石材基座
+                上一版整个基座都是一片 dark，而基座占立面高度的
+                  BASE_FLOORS/FLOOR_H ÷ 总高 ≈ 12%~25%，
+                这是一块**大面积深暗色**，正好违反"避免大面积采用深暗色系"。
+                拆成"细勒脚 + 中调基座"后，dark 的占比从 ~25% 掉到 ~4%，
+                而"楼有脚"的观感完全保留 —— 因为对比靠的是
+                dark 与 trim 之间那一档明度差，不需要整片黑。 */
+          kind = (y < Math.max(1, Math.round(BASE_H * 0.18))) ? 'dark' : 'trim';
+        } else if ((onXFace && vbarAt(z)) || (onZFace && vbarAt(x))) {
+          /* ② 竖向分格缝：每个窗周期一条，**落在窗间墙的中线上**。
+                它是"竖向线条的视觉引导"（规范原文："利用阳台外框、柱体线条
+                或色彩竖带，形成竖向的视觉引导……使住宅显得更加挺拔"）。
+                ⚠️ 用 trim（辅助色）不用 dark —— 真实的分格缝是凹槽，
+                   明度只比墙面低一档。用 dark 会变成一条条黑杠，
+                   在只有 7~8 格宽的立面上尤其刺眼（详见 vbarAt 的注释）。 */
+          kind = 'trim';
+        } else if (isBand) {
+          /* ③ 横向腰线（楼层线）—— **只占 1 格**，小精巧。
+                真实指引反复强调腰线不能粗大，"做到腰线尽量小巧、精致"，
+                粗腰线会把楼切成"千层饼"。
+                放在窗之前判定，保证它一定可见（不会被玻璃盖掉）。
+                用 trim（辅助色）而不是 dark —— 腰线是"分格线"，
+                不应该是黑带。 */
+          kind = 'trim';
+        } else if (hasBalcony && !isBase && !isCorner && local === balconyLocal &&
+                   (onXFace || onZFace)) {
+          /* ④b 封闭阳台带（见 hasBalcony 的注释）：**通长玻璃**。
+                它放在 punched 窗之前判定，于是会把这一整行吃掉 ——
+                行内不再有窗间墙，形成真实的"横带"。
+                ⚠️ 必须在 vbarAt 之后 —— 竖向分格缝要能把长带切成"一户一段"，
+                   否则整栋楼是一条没有分户的玻璃腰带，更假。 */
+          kind = 'glass';
+        } else if ((onXFace && winAt(z, y)) || (onZFace && winAt(x, y))) {
+          /* ④ 窗。窗墙比已按 GB 55015-2021 表 3.1.4 标定（见 stylePar）。 */
+          kind = 'glass';
+        } else if ((onXFace && acAt(z, y)) || (onZFace && acAt(x, y))) {
+          /* ⑤ 空调机位：小方块点缀，做在窗之后（窗优先），
+                保证它只出现在窗间墙/墙面上，不会切碎窗户。 */
+          kind = 'dark';
+        } else if (isCorner) {
+          /* ⑥ 转角柱：竖向通高、比墙面略深一档的辅助色，体现"稳重感、体量感"。
+                规范原文："鼓励采用金属材料、石材对建筑转角、阳台、檐口等
+                重点部位进行处理"。
+                ⚠️ 用 trim（辅助色）而不是 dark：转角是"重点部位处理"，
+                   不是黑柱子。上一版用 trim 是对的，这一版保持。
+                   但把它的判定挪到空调位之后，避免整根角柱把角吃掉。 */
+          kind = 'trim';
+        } else if (isCrown && (onXFace || onZFace) && local === 0) {
+          /* ⑦ 顶部收头：最上面几层的腰线那一圈走 trim，
+                做出"檐口线/女儿墙收边形成视觉终点"的 Crown 段。 */
+          kind = 'trim';
+        } else if (isStoneStyle && (onXFace || onZFace) && local === FLOOR_H - 1) {
+          /* 石材楼：窗楣那一格走 trim，做出"每层一道浅檐"的层次
+             （①"窗套/窗台板要有凹凸"）。只在石材楼上做。
+             ⚠️ 判据用 FLOOR_H-1（每层最顶那一格）——
+                原来是 FLOOR_H-2，但那一行现在是封闭阳台带，
+                两者会打架（阳台带先判定就赢，这条变成死代码）。 */
+          kind = 'trim';
+        } else {
+          kind = 'body';                                    // ⑧ 窗间墙（浅色主色）
+        }
+        addCell(lidx, kind);
+      }
+    }
+  }
+
+  /* ── 屋顶细节：女儿墙 + 电梯机房 + 天线 ────────────────────────────
+     这些是"真楼"轮廓的关键。做法是先按需要把网格加高（在 H 之上再留几层），
+     避免再出现"用 min(yy, H-1) 挤进顶层"那种会重复占位的写法。
+
+     尺度（格）：楼高现在只有 28~65 格，所以细节比例要跟着放大 ——
+       女儿墙 1~2 格   —— 高楼顶上一圈矮墙，剪影上一眼能认出来
+       电梯机房 3~8 格 —— 屋顶上那个"盒子"，skyline 上最重要的非对称细节
+       天线     4~9 格 —— 细到 1 格，剪影上像一根针（高楼才给） */
+  const wallH = Math.max(1, Math.round(H * 0.030));          // 女儿墙高度（格）
+  const hasPenthouse = H > 20 && Math.random() < 0.72;       // 天台电梯机房
+  const pentH = hasPenthouse ? Math.max(3, Math.round(H * 0.10)) : 0;
+  const hasMast = H > 36 && Math.random() < 0.55;            // 天线/避雷针
+  const mastH = hasMast ? Math.max(4, Math.round(H * 0.16)) : 0;
+  const EXTRA = wallH + pentH + mastH;
+
+  /* 需要加高时，把 grid 换成更高的一块（旧数据在 y 方向是低位，直接前置拷贝）。
+     y 是最高维 → 线性下标前 W*D*H 个正好就是原来的整块数据。
+     ⚠️ H 是函数参数，不能重赋值；用 HG 记录"含屋顶细节之后的总高"。 */
+  const H0 = H;                          // 原始屋顶高度（女儿墙从这里往上长）
+  let HG = H;
+  let G = grid;
+  /* ⚠️ 加高时必须把 claimed 一起扩到 W*D*HG。
+     以前 claimed 固定是 W*D*H（旧高），于是屋顶细节那些**新格**
+     的 lidx 全都 >= claimed.length，被 addCell 的第一句挡掉 ——
+     整段屋顶细节（女儿墙/机房/天线/雨棚）事实上一个格子都没生效，
+     只是白白跑了一遍循环。实测就是靠"inst 比 alive 多出几个"
+     才揪出来的。 */
+  if (EXTRA > 0) {
+    HG = H + EXTRA;
+    const bigger = new Uint8Array(W * D * HG);
+    bigger.set(grid);
+    G = bigger;
+  }
+  rebindGrid(G);                          // grid / curG / claimed 三者同步
+  const idxG = (x, y, z) => (y * D + z) * W + x;
+
+  const yRoof = H0;
+  const rb = halfAt(H0 - 1);
+
+  if (EXTRA > 0) {
+    /* ── 女儿墙：沿屋顶边缘一圈（从原始屋顶平面 yRoof 往上长 wallH 层）──
+       直接遍历"楼顶那层的矩形外框"，四条边各走一遍（角上重复 addCell 会被
+       claimed 挡掉，不会重复计数，所以不必特判去角）。
+
+       ⚠️ 材质分两层，对应真实做法"女儿墙横向压顶线条……防止雨滴脏污墙面"：
+            墙身（底下几格）→ body 浅色（同外墙）
+            顶部那一格      → trim 压顶（略深的收边线）
+          这样女儿墙是"浅色矮墙 + 一道深压顶"，
+          而不是上一版那种整圈中灰（远看像楼顶围了一圈黑框）。 */
+    const x0 = rb.x0 + CX, x1 = rb.x1 + CX;
+    const z0 = rb.z0 + CZ, z1 = rb.z1 + CZ;
+    for (let t = 0; t < wallH; t++) {
+      const y = yRoof + t;
+      if (y >= HG) break;
+      const k = (t === wallH - 1) ? 'trim' : 'body';   // 最顶一格 = 压顶
+      for (let x = x0; x <= x1; x++) {
+        addCell(idxG(x, y, z0), k);
+        addCell(idxG(x, y, z1), k);
+      }
+      for (let z = z0 + 1; z < z1; z++) {          // 去掉已画过的两角
+        addCell(idxG(x0, y, z), k);
+        addCell(idxG(x1, y, z), k);
+      }
+    }
+
+    /* ── 天台电梯机房 + 出入口雨棚 ──────────────────────────────────
+       电梯机房：屋顶中心一个盒子（只做壳，内部看不到）。
+       这是 skyline 上最重要的"非对称细节"：有了它，楼的轮廓才算真的"有东西"。
+       ⚠️ 尺寸必须跟着 H 缩放：H 只有 28~65 格时，
+          原来按 wC 的 20% 算出来只有 1~2 格，等于没做。
+       ⚠️⚠️ 材质必须是 **trim 而不是 dark**。上一版这里是整块 dark，
+          而机房占楼宽的 26% × 楼高的 10%，是屋顶上最大的一块体量 ——
+          它一个人就把"屋顶一片黑"坐实了。真实电梯机房是**混凝土盒子**，
+          颜色与外墙接近、略深一档，不是黑铁块。 */
+    if (hasPenthouse) {
+      const pw = Math.max(2, Math.round(wC * 0.26));
+      const pd = Math.max(2, Math.round(dC * 0.26));
+      const cxw = CX + Math.round((Math.random() - .5) * wC * 0.22);  // 略微偏心更像真楼
+      const czw = CZ + Math.round((Math.random() - .5) * dC * 0.22);
+      const yTop = Math.min(yRoof + pentH, HG - 1);
+      for (let y = yRoof; y <= yTop; y++) {
+        for (let x = cxw - pw; x <= cxw + pw; x++) {
+          for (let z = czw - pd; z <= czw + pd; z++) {
+            if (x < 0 || x >= W || z < 0 || z >= D || y < 0 || y >= HG) continue;
+            const edge = (x === cxw - pw || x === cxw + pw ||
+                          z === czw - pd || z === czw + pd || y === yTop);
+            /* 顶面（y === yTop）用 body 浅色 —— 从空中俯瞰时它是浅屋顶的一部分 */
+            if (edge) addCell(idxG(x, y, z), y === yTop ? 'body' : 'trim');
+          }
+        }
+      }
+
+      /* ── 出入口雨棚（门厅）：在**基座**某一面外挑 2 格、高 1 格 ──────
+         落地细节，街上视角第一眼看到的东西。挑在四面里随机一面。
+         做法分两步：外挑的平板（trim 金属板），以及门洞（dark）。
+         ⚠️ 雨棚平板用 trim 不用 dark：真实雨棚是金属板/仿石，
+            不是一条黑带；而门洞必须是 dark —— 那才是真的"洞"。
+         ⚠️⚠️ 外挑**必须自己钳到网格边界**，不能指望 addCell 的范围检查。
+            addCell 只校验 lidx 是否落在 [0, len)，而 lidx = (y*D+z)*W+x ——
+            z = -1 会算成 `(y*D - 1)*W + x`，指向**上一层的最后一行**，
+            是一个完全合法但张冠李戴的下标：
+            既不会报错，也不会被丢弃，而是在别的楼层、别的朝向凭空长出一格
+            （这就是那 2 格来路不明悬空块的真正来源 —— 它们不是\"结构问题\"，
+             是负坐标别名写坏了网格）。 */
+      const rb0 = halfAt(0);
+      const ax0 = rb0.x0 + CX, ax1 = rb0.x1 + CX;
+      const az0 = rb0.z0 + CZ, az1 = rb0.z1 + CZ;
+      const yCan = Math.min(BASE_H, HG - 1);     // 雨棚高度 = 基座顶上一格
+      const CANT = 2;                            // 外挑格数
+      const side = Math.floor(Math.random() * 4); // 0:-Z 1:+Z 2:-X 3:+X
+
+      /* 网格范围内的合法夹取。[0, W-1] / [0, D-1] 之外一律丢掉。 */
+      const clampX = (x) => Math.max(0, Math.min(W - 1, x));
+      const clampZ = (z) => Math.max(0, Math.min(D - 1, z));
+
+      if (side === 0 || side === 1) {
+        /* 沿 X 展开、朝 ±Z 外挑 */
+        const zEdge = side === 0 ? az0 : az1;
+        const zTo = side === 0 ? az0 - CANT : az1 + CANT;
+        const zLo = clampZ(Math.min(zEdge, zTo)), zHi = clampZ(Math.max(zEdge, zTo));
+        for (let x = ax0; x <= ax1; x++)
+          for (let z = zLo; z <= zHi; z++) addCell(idxG(clampX(x), yCan, z), 'trim');
+        /* 门洞：出入口那一小段的基座换成 dark，正面一眼能看出"这里有个门" */
+        const doorW = Math.max(1, Math.round((ax1 - ax0 + 1) * 0.16));
+        const xm = Math.round((ax0 + ax1) / 2);
+        for (let x = xm - doorW; x <= xm + doorW; x++)
+          for (let t = 0; t < yCan; t++) addCell(idxG(clampX(x), t, clampZ(zEdge)), 'dark');
+      } else {
+        /* 沿 Z 展开、朝 ±X 外挑 */
+        const xEdge = side === 2 ? ax0 : ax1;
+        const xTo = side === 2 ? ax0 - CANT : ax1 + CANT;
+        const xLo = clampX(Math.min(xEdge, xTo)), xHi = clampX(Math.max(xEdge, xTo));
+        for (let z = az0; z <= az1; z++)
+          for (let x = xLo; x <= xHi; x++) addCell(idxG(x, yCan, clampZ(z)), 'trim');
+        const doorW = Math.max(1, Math.round((az1 - az0 + 1) * 0.16));
+        const zm = Math.round((az0 + az1) / 2);
+        for (let z = zm - doorW; z <= zm + doorW; z++)
+          for (let t = 0; t < yCan; t++) addCell(idxG(clampX(xEdge), t, clampZ(z)), 'dark');
+      }
+    }
+
+    /* ── 天线：屋顶正中一根细柱（细到 1 格，剪影上像一根针）── */
+    if (hasMast) {
+      for (let y = Math.max(0, HG - mastH); y < HG; y++) addCell(idxG(CX, y, CZ), 'dark');
+    }
+
+    /* ⚠️ 加高后必须把 H 换掉，否则后面 detach / slotOf 用的还是旧高度，
+       而且数组长度对不上（会越界读到 undefined / 越界写入被静默丢弃）。
+       grid / curG / claimed 已经在上面 rebindGrid(G) 处理过了。 */
+    H = HG;
+  }
+
+  /* call site ②：所有会往网格里写东西的 stage 都结束了之后，最后兜一次底。
+     ⚠️ 为什么必须有第二次 —— call site ①跑在"材质分类循环"之前，
+        而后面的若干 stage 仍会用 addCell 往 curG 里写：
+          女儿墙 / 电梯机房 / 雨棚 / 门洞 / 天线 / 网格加高
+        只要其中任何一个在"下方没有支撑"的位置落笔，就会又长出悬空块。
+        这里补出来的格子已经赶不上分类循环了，直接挂到 lists.body。 */
+  {
+    const added = repairFloating();
+    for (const l of added) {
+      if (claimed && l < claimed.length && claimed[l]) continue;
+      if (claimed && l < claimed.length) claimed[l] = 1;
+      lists.body.push(l);
+    }
+  }
+
+  /* ── 建 InstancedMesh 组 ──
+     四种材质各一个 InstancedMesh：body / trim / glass / dark。
+     ⚠️ 顺序必须与下面 KIND_ID 的编号一致（1/2/3/4）—— detachVoxel 靠编号反查材质组。 */
+  const VOX_KINDS = ['body', 'trim', 'glass', 'dark'];
+  /* origin = 网格格 (0,0,0) 对应的世界坐标。
+     网格比楼体宽 PAD 格（每边），所以网格原点要相应外移 PAD 格，
+     这样**楼体的标称中心**才正好落在 (cx, cz) 上、楼底落在 y=0。 */
+  const originX = cx - ((CX + 0.5) * V);
+  const originZ = cz - ((CZ + 0.5) * V);
+  const bld = {
+    cx, cz, W, D, H, grid, style, mats, PAD, CX, CZ,
+    groups: {}, meshes: [], cells: 0,
+    /* 世界坐标换算：格 (x,y,z) → 世界 */
+    wx: (x) => originX + x * V,
+    wy: (y) => y * V,
+    wz: (z) => originZ + z * V,
+    originX, originZ,
+    lidx: (x, y, z) => (y * D + z) * W + x,
+    /* 反查：lidx → [x,y,z]（整数运算，比存坐标省 200MB） */
+    unidx: (l) => { const y = Math.floor(l / (D * W)); const r = l - y * D * W;
+                    const z = Math.floor(r / W); return [r - z * W, y, z]; },
+  };
+
+  for (const kind of VOX_KINDS) {
+    const arr = lists[kind];
+    if (arr.length === 0) continue;
+    /* 分块合并渲染（见 commitCity）：这里只把每格的**平移与颜色**暂存进纯数组，
+       等全城所有楼建完、按空间分好块之后一次性提交。
+       矩阵全是纯平移（无旋转无缩放），存 3 个 float 就够；
+       颜色是调色板基色 × 逐格明暗扰动，存 3 个 float。
+       ⚠️ 平移直接烘成世界坐标 —— chunk mesh 的原点在 (0,0,0)。 */
+    const n = arr.length;
+    const g = {
+      kind, used: n, count: n, cap: n + 16, base: -1, im: null, mat: mats[kind],
+      index: new Int32Array(n + 16),
+      tx: new Float32Array(n), ty: new Float32Array(n), tz: new Float32Array(n),
+      col: new Float32Array(n * 3),
+    };
+    const c = mats[kind].color;
+    const col = new THREE.Color();
+    for (let i = 0; i < n; i++) {
+      const [x, y, z] = bld.unidx(arr[i]);
+      g.tx[i] = originX + x * V;
+      g.ty[i] = y * V;
+      g.tz[i] = originZ + z * V;
+      g.index[i] = arr[i];
+      /* 相邻格之间亮度差一点 → 纹理感（原逻辑逐字保留，只是改存进数组） */
+      const nn = ((x * 73856093) ^ (y * 19349663) ^ (z * 83492791)) & 0xff;
+      const k = Math.min(1.25, 1 + (nn / 255 - 0.5) * 0.16);
+      col.copy(c).multiplyScalar(k);
+      g.col[i * 3] = col.r; g.col[i * 3 + 1] = col.g; g.col[i * 3 + 2] = col.b;
+    }
+    bld.groups[kind] = g;
+    bld.cells += n;
+    totalVoxels += n;
+  }
+
+  /* lidx → {kind, slot} 的快速反查表。
+     爆炸削块时要知道"这一格在哪个材质组的第几个实例"，直接用数组 O(1) 查，
+     省掉原来的线性搜索（原实现一炮要扫几万格 × 每格扫几万项 = 爆炸卡死）。 */
+  bld.slotOf = new Int32Array(W * D * H).fill(-1);
+  bld.kindOf = new Uint8Array(W * D * H);   // 0=无 1=body 2=trim 3=glass 4=dark
+  const KIND_ID = { body: 1, trim: 2, glass: 3, dark: 4 };
+  for (const kind of VOX_KINDS) {
+    const g = bld.groups[kind];
+    if (!g) continue;
+    for (let i = 0; i < g.used; i++) {
+      bld.slotOf[g.index[i]] = i;
+      bld.kindOf[g.index[i]] = KIND_ID[kind];
+    }
+  }
+
+  /* 记录"完好状态下的底部承重占比"作为损伤基线（见 SUPPORT_RATIO 的注释）。
+     ⚠️ 必须在这里记 —— collapseCheck 是**爆炸后**才跑的，那时楼已经被打过了，
+        再"按当时的状态"取基线会把损伤当成常态，阈值就永远追不上损伤。
+         所以只能在生成时、网格还是完好的时候取一张"体检快照"。 */
+  bld.frac0 = supportOf(bld).frac;
+
+  /* ⚠️⚠️ 这里**不能** buildings.push(bld)。
+     它曾经push过一次，而调用处 buildCity() 又 push 了 makeBuilding 的返回值 ——
+     于是**每栋楼都在 buildings 里存在两份**（实测 56 项里只有 28 个不同位置），
+     而且两份共享同一个 grid 数组引用。后果非常隐蔽：
+
+       · 渲染：同一位置的 InstancedMesh 被算两遍（白白翻倍的开销）
+       · 爆炸：explode 遍历 buildings，对两份各跑一次命中收集。
+               第一份把 grid 削了、生成碎块；第二份读到 grid 已清空，
+               detachVoxel 返回 null 全部跳过 —— 所以**碎块只生成一份**。
+               但 b.cells 是挂在两个不同对象上的独立计数器，
+               两个都被减了一次 → 求和之后**正好是碎块数的 2 倍**。
+       · 于是探针里出现那个精确的 2:1（摘 704 / 生成 352），
+               我为此查了好几轮，先后怀疑过碎块池、detachVoxel、
+               perfTier 半径收缩，全部排除后才定位到这里。
+
+     约定：makeBuilding 是**纯构造**，只负责造楼并返回；
+     要不要入列由调用方决定。 */
+  return bld;
+}
+
+function rand2(a, b) { return a + Math.random() * (b - a); }
+
+/* 保留空实现（原先用于"合并静态体素"，现在是每楼 3 个 InstancedMesh，无需合并） */
+function mergeStaticVoxels() {}
+
+/* -------------------------------------------------------------------------
+   关键操作：从建筑上"摘掉"一个方块
+   —— 更新所属材质组的实例矩阵（swap-remove）并同步反查表。
+   返回方块的世界坐标与颜色（给碎块用）。
+   ------------------------------------------------------------------------- */
+function detachVoxel(bld, lidx) {
+  if (lidx < 0 || lidx >= bld.grid.length) return null;
+  if (bld.grid[lidx] !== 1) return null;               // 已经没了
+
+  const [x, y, z] = bld.unidx(lidx);
+  const kindId = bld.kindOf[lidx];
+  /* 编号 → 材质组名（与 makeBuilding 里的 KIND_ID 一一对应：1/2/3/4） */
+  const kind = kindId === 3 ? 'glass' : kindId === 2 ? 'trim'
+             : kindId === 4 ? 'dark' : 'body';
+  const g = bld.groups[kind];
+  if (!g) return null;
+
+  const slot = bld.slotOf[lidx];
+  /* ⚠️ 颜色必须在 eraseVox **之前**取 —— swap-remove 会把这个槽位的数据覆盖掉。
+     优先取该格实例色（带逐格明暗扰动，碎块颜色更真实），回退到调色板基色。 */
+  let voxCOLOR = g.mat.color;
+  if (g.im && g.im.instanceColor && slot >= 0 && slot < g.used) {
+    const a = g.im.instanceColor.array;
+    const o3 = (g.base + slot) * 3;
+    voxCOLOR = new THREE.Color(a[o3], a[o3 + 1], a[o3 + 2]);
+  }
+  if (slot >= 0 && slot < g.used && g.index[slot] === lidx) {
+    const moved = eraseVox(g, slot);           // swap-remove，返回被挪过来的 lidx
+    if (moved >= 0 && moved !== lidx) {
+      bld.slotOf[moved] = slot;                // 修正被挪动的那个格子的位置记录
+      bld.slotOf[lidx] = -1;
+    } else {
+      bld.slotOf[lidx] = -1;
+    }
+  }
+
+  bld.grid[lidx] = 0;
+  bld.kindOf[lidx] = 0;
+  return {
+    wp: new THREE.Vector3(bld.wx(x), bld.wy(y), bld.wz(z)),
+    color: voxCOLOR,
+    kind,
+  };
+}
+
+/* 标记建筑是否已被削空。
+   新版用 bld.cells（当前剩余方块数）判定 —— 不再维护 Set。 */
+function checkRubble(bld) {
+  if (bld.cells <= 0 && !bld.razed) {
+    bld.razed = true;
+    stats.buildingsRazed++;
+  }
+}
+
+/* ============================== 音效（WebAudio 合成） ============================== */
+const Audio = (() => {
+  let ctx = null, master = null, noiseBuf = null, enabled = true;
+  function init() {
+    if (ctx) return;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) { enabled = false; return; }
+    ctx = new AC();
+    master = ctx.createGain();
+    master.gain.value = 0.5;
+    master.connect(ctx.destination);
+    // 预生成白噪声
+    const len = ctx.sampleRate * 1.2;
+    noiseBuf = ctx.createBuffer(1, len, ctx.sampleRate);
+    const d = noiseBuf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+  }
+  function resume() { init(); if (ctx && ctx.state === 'suspended') ctx.resume(); }
+
+  function noise(dur, gain, filterType, freq, q, decay) {
+    if (!ctx || !enabled) return () => {};
+    const src = ctx.createBufferSource();
+    src.buffer = noiseBuf;
+    src.loop = true;
+    const f = ctx.createBiquadFilter();
+    f.type = filterType; f.frequency.value = freq; f.Q.value = q || 1;
+    const g = ctx.createGain();
+    const t = ctx.currentTime;
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(gain, t + 0.004);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    if (decay) f.frequency.exponentialRampToValueAtTime(decay, t + dur);
+    src.connect(f); f.connect(g); g.connect(master);
+    src.start(t); src.stop(t + dur + 0.02);
+    return () => { try { src.stop(); } catch (e) {} };
+  }
+  function tone(f0, f1, dur, gain, type) {
+    if (!ctx || !enabled) return;
+    const o = ctx.createOscillator();
+    o.type = type || 'sine';
+    const g = ctx.createGain();
+    const t = ctx.currentTime;
+    o.frequency.setValueAtTime(f0, t);
+    o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + dur);
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(gain, t + 0.006);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(master);
+    o.start(t); o.stop(t + dur + 0.02);
+  }
+
+  return {
+    resume, init,
+    get ready() { return !!ctx && enabled; },
+    setEnabled(v) { enabled = v; if (master) master.gain.value = v ? 0.5 : 0; },
+    cannon() {
+      // 炮击：低频砰 + 高频噪声
+      tone(180, 42, 0.22, 0.32, 'sawtooth');
+      noise(0.16, 0.24, 'lowpass', 1400, 1, 300);
+    },
+    explode(power) {
+      const p = Math.min(1.4, power || 1);
+      tone(95, 28, 0.55 * p, 0.5 * p, 'sine');       // 低频轰鸣
+      tone(240, 45, 0.3 * p, 0.2 * p, 'triangle');
+      noise(0.85 * p, 0.42 * p, 'lowpass', 2600, 0.9, 160); // 爆裂
+      noise(0.13, 0.3 * p, 'highpass', 3200, 0.7);          // 脆响
+    },
+    crumble(n) {
+      // 砖石碎裂：短促颗粒噪声，按碎块数量叠几层
+      const k = Math.min(4, 1 + Math.floor(n / 22));
+      for (let i = 0; i < k; i++)
+        setTimeout(() => noise(0.13, 0.11, 'bandpass', 900 + Math.random() * 2600, 1.4), i * 26);
+    },
+    land() { tone(120, 55, 0.1, 0.1, 'sine'); },
+    ui() { tone(680, 900, 0.07, 0.1, 'square'); },
+  };
+})();
+
+/* ============================== 冲击波 / 粒子特效 ============================== */
+/* 冲击波：扩张的环形膜（ShaderMaterial）
+   火花：Points 粒子
+   烟尘：半透明球体 */
+const shockGeo = new THREE.SphereGeometry(1, 24, 14);
+const shockMat = new THREE.ShaderMaterial({
+  transparent: true, depthWrite: false, side: THREE.DoubleSide,
+  blending: THREE.AdditiveBlending,
+  uniforms: { uT: { value: 0 }, uColor: { value: new THREE.Color(0xffd9a0) } },
+  vertexShader: `varying vec3 vN; varying vec3 vP;
+    void main(){ vN = normalize(normalMatrix * normal);
+      vec4 mv = modelViewMatrix * vec4(position,1.0); vP = mv.xyz;
+      gl_Position = projectionMatrix * mv; }`,
+  fragmentShader: `varying vec3 vN; varying vec3 vP; uniform float uT; uniform vec3 uColor;
+    void main(){
+      float rim = pow(1.0 - abs(dot(normalize(vN), normalize(-vP))), 2.2);
+      float a = rim * (1.0 - uT) * 0.95;
+      gl_FragColor = vec4(uColor, a);
+    }`,
+});
+const shockPool = [];
+for (let i = 0; i < 10; i++) {
+  const m = new THREE.Mesh(shockGeo, shockMat.clone());
+  m.visible = false; m.renderOrder = 5;
+  scene.add(m);
+  shockPool.push({ mesh: m, t: 0, dur: 0, max: 0, active: false });
+}
+function spawnShock(pos, radius) {
+  let s = shockPool.find(o => !o.active) || shockPool[0];
+  s.active = true; s.t = 0; s.dur = 0.52; s.max = radius * 1.15;
+  s.mesh.visible = true;
+  s.mesh.position.copy(pos);
+  s.mesh.scale.setScalar(radius * 0.28);
+  return s;
+}
+function updateShocks(dt) {
+  for (const s of shockPool) {
+    if (!s.active) continue;
+    s.t += dt;
+    const k = s.t / s.dur;
+    if (k >= 1) { s.active = false; s.mesh.visible = false; continue; }
+    const e = 1 - Math.pow(1 - k, 2.6);          // ease-out
+    s.mesh.scale.setScalar(0.28 * s.max + e * s.max * 0.86);
+    s.mesh.material.uniforms.uT.value = k;
+    s.mesh.material.uniforms.uColor.value.setHSL(0.075 + k * 0.06, 0.9, 0.72 - k * 0.28);
+  }
+}
+
+/* 火花粒子 */
+const SPARK_MAX = 700;
+const sparkGeo = new THREE.BufferGeometry();
+const sparkPos = new Float32Array(SPARK_MAX * 3);
+const sparkCol = new Float32Array(SPARK_MAX * 3);
+const sparkAlive = new Float32Array(SPARK_MAX);
+const sparkVel = new Float32Array(SPARK_MAX * 3);
+const sparkLife = new Float32Array(SPARK_MAX);
+const sparkMaxLife = new Float32Array(SPARK_MAX);
+sparkGeo.setAttribute('position', new THREE.BufferAttribute(sparkPos, 3));
+sparkGeo.setAttribute('color', new THREE.BufferAttribute(sparkCol, 3));
+sparkGeo.setAttribute('alpha', new THREE.BufferAttribute(new Float32Array(SPARK_MAX), 1));
+const sparkMat = new THREE.ShaderMaterial({
+  transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+  vertexColors: true,
+  uniforms: { uSize: { value: 26 } },
+  vertexShader: `
+    attribute float alpha; varying vec3 vC; varying float vA;
+    uniform float uSize;
+    void main(){
+      vC = color; vA = alpha;
+      vec4 mv = modelViewMatrix * vec4(position,1.0);
+      gl_PointSize = uSize * (1.0 / -mv.z) * (0.45 + alpha);
+      gl_Position = projectionMatrix * mv;
+    }`,
+  fragmentShader: `
+    varying vec3 vC; varying float vA;
+    void main(){
+      vec2 d = gl_PointCoord - 0.5;
+      float r = dot(d,d);
+      if(r > 0.25) discard;
+      float a = (1.0 - r*4.0) * vA;
+      gl_FragColor = vec4(vC, a);
+    }`,
+});
+const sparkPoints = new THREE.Points(sparkGeo, sparkMat);
+sparkPoints.frustumCulled = false;
+scene.add(sparkPoints);
+let sparkCursor = 0;
+
+function spawnSparks(pos, n, speed, colA, colB) {
+  const ca = new THREE.Color(colA), cb = new THREE.Color(colB);
+  for (let i = 0; i < n; i++) {
+    const idx = sparkCursor; sparkCursor = (sparkCursor + 1) % SPARK_MAX;
+    sparkAlive[idx] = 1;
+    sparkMaxLife[idx] = 0.35 + Math.random() * 0.6;
+    sparkLife[idx] = sparkMaxLife[idx];
+    sparkPos[idx * 3]     = pos.x + (Math.random() - .5) * .4;
+    sparkPos[idx * 3 + 1] = pos.y + (Math.random() - .5) * .4;
+    sparkPos[idx * 3 + 2] = pos.z + (Math.random() - .5) * .4;
+    const th = Math.random() * Math.PI * 2;
+    const ph = Math.acos(Math.random() * 2 - 1);
+    const sp = speed * (0.35 + Math.random() * 0.85);
+    sparkVel[idx * 3]     = Math.sin(ph) * Math.cos(th) * sp;
+    sparkVel[idx * 3 + 1] = Math.abs(Math.cos(ph)) * sp * 1.05 + 3;
+    sparkVel[idx * 3 + 2] = Math.sin(ph) * Math.sin(th) * sp;
+    const t = Math.random();
+    const c = ca.clone().lerp(cb, t);
+    sparkCol[idx * 3] = c.r; sparkCol[idx * 3 + 1] = c.g; sparkCol[idx * 3 + 2] = c.b;
+  }
+  sparkGeo.attributes.position.needsUpdate = true;
+  sparkGeo.attributes.color.needsUpdate = true;
+}
+function updateSparks(dt) {
+  const attr = sparkGeo.attributes.position;
+  const al = sparkGeo.attributes.alpha;
+  let any = false;
+  for (let i = 0; i < SPARK_MAX; i++) {
+    if (!sparkAlive[i]) { if (al.array[i] !== 0) { al.array[i] = 0; any = true; } continue; }
+    any = true;
+    sparkLife[i] -= dt;
+    if (sparkLife[i] <= 0) { sparkAlive[i] = 0; al.array[i] = 0; continue; }
+    const vi = i * 3;
+    sparkVel[vi + 1] += CFG.GRAVITY * 0.55 * dt;
+    sparkVel[vi] *= (1 - 1.5 * dt);
+    sparkVel[vi + 1] *= (1 - 0.7 * dt);
+    sparkVel[vi + 2] *= (1 - 1.5 * dt);
+    sparkPos[vi]     += sparkVel[vi] * dt;
+    sparkPos[vi + 1] += sparkVel[vi + 1] * dt;
+    sparkPos[vi + 2] += sparkVel[vi + 2] * dt;
+    al.array[i] = Math.min(1, sparkLife[i] / sparkMaxLife[i] * 1.6);
+  }
+  if (any) { attr.needsUpdate = true; al.needsUpdate = true; }
+}
+
+/* 烟尘：膨胀 + 上浮 + 淡出的球 */
+const DUST_MAX = 70;
+const dustGeo = new THREE.IcosahedronGeometry(1, 1);
+const dustPool = [];
+for (let i = 0; i < DUST_MAX; i++) {
+  const mat = new THREE.MeshBasicMaterial({
+    color: 0xcbbfae, transparent: true, opacity: 0, depthWrite: false, fog: true,
+  });
+  const m = new THREE.Mesh(dustGeo, mat);
+  m.visible = false;
+  scene.add(m);
+  dustPool.push({ mesh: m, t: 0, dur: 1, max: 1, vy: 0, active: false, spin: 0 });
+}
+function spawnDust(pos, n, radius) {
+  for (let i = 0; i < n; i++) {
+    const d = dustPool.find(o => !o.active);
+    if (!d) return;
+    d.active = true; d.t = 0;
+    d.dur = 0.85 + Math.random() * 0.75;
+    d.max = radius * (0.42 + Math.random() * 0.75);
+    d.vy = 0.6 + Math.random() * 1.5;
+    d.spin = (Math.random() - .5) * 1.6;
+    const th = Math.random() * Math.PI * 2, ph = Math.random() * Math.PI;
+    const rr = radius * Math.random() * 0.5;
+    d.mesh.position.set(
+      pos.x + Math.sin(ph) * Math.cos(th) * rr,
+      pos.y + Math.cos(ph) * rr * 0.6 + 0.4,
+      pos.z + Math.sin(ph) * Math.sin(th) * rr
+    );
+    d.mesh.scale.setScalar(d.max * 0.35);
+    d.mesh.rotation.set(Math.random() * 3, Math.random() * 3, Math.random() * 3);
+    d.mesh.material.opacity = 0.0;
+    d.mesh.material.color.setHSL(0.09, 0.1, 0.62 + Math.random() * 0.15);
+    d.mesh.visible = true;
+  }
+}
+function updateDust(dt) {
+  for (const d of dustPool) {
+    if (!d.active) continue;
+    d.t += dt;
+    const k = d.t / d.dur;
+    if (k >= 1) { d.active = false; d.mesh.visible = false; continue; }
+    const grow = 0.35 + (1 - Math.pow(1 - k, 2)) * 1.0;
+    const s = d.max * grow;
+    d.mesh.scale.set(s, s * (0.82 + k * 0.3), s);
+    d.mesh.position.y += d.vy * dt * (1 - k * 0.6);
+    d.mesh.rotation.y += d.spin * dt;
+    d.mesh.material.opacity = Math.sin(Math.min(1, k * 2.4) * Math.PI * 0.5) *
+                              (1 - k) * 0.5;
+  }
+}
+
+/* ============================== 炮弹 ============================== */
+const SHELL_MAX = 26;
+const shellGeo = new THREE.SphereGeometry(0.30, 14, 10);
+const shellMat = new THREE.MeshStandardMaterial({
+  color: 0xffb347, emissive: 0xff6a1a, emissiveIntensity: 1.9, roughness: 0.4,
+});
+const shells = [];
+for (let i = 0; i < SHELL_MAX; i++) {
+  const m = new THREE.Mesh(shellGeo, shellMat);
+  m.visible = false; m.castShadow = false;
+  scene.add(m);
+  shells.push({ mesh: m, active: false, vel: new THREE.Vector3(), life: 0, trail: null });
+}
+
+/* 炮弹轨迹：拖尾线 */
+function makeTrail() {
+  const N = 26;
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(N * 3), 3));
+  g.setAttribute('alpha', new THREE.BufferAttribute(new Float32Array(N), 1));
+  g.setDrawRange(0, N);
+  const mat = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    uniforms: { uC: { value: new THREE.Color(0xffc46b) } },
+    vertexShader: `attribute float alpha; varying float vA;
+      void main(){ vA=alpha; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+    fragmentShader: `varying float vA; uniform vec3 uC;
+      void main(){ gl_FragColor = vec4(uC, vA*0.85); }`,
+  });
+  const line = new THREE.Line(g, mat);
+  line.frustumCulled = false;
+  scene.add(line);
+  return { line, geo: g, mat, N, pts: new Array(N).fill(null).map(() => new THREE.Vector3()), filled: 0 };
+}
+
+/* 炮弹拖尾用 Points 更好看（有粗细感） */
+const trailPool = [];
+for (let i = 0; i < SHELL_MAX; i++) trailPool.push(makeTrail());
+
+function fireShell(origin, dir, speed) {
+  let idx = shells.findIndex(o => !o.active);
+  if (idx < 0) { idx = 0; }               // 全部在用 → 复用第 0 发
+  const s = shells[idx];
+  s.active = true;
+  s.life = 4.0;
+  s.mesh.visible = true;
+  s.mesh.position.copy(origin);
+  s.vel.copy(dir).multiplyScalar(speed);
+  s.trail = trailPool[idx];
+  s.trail.filled = 0;
+  s.trail.pts.forEach(p => p.copy(origin));
+  return s;
+}
+
+function updateShells(dt, onHit) {
+  for (const s of shells) {
+    if (!s.active) continue;
+    s.life -= dt;
+    if (s.life <= 0) { s.active = false; s.mesh.visible = false; continue; }
+
+    const p0 = s.mesh.position.clone();
+    s.vel.y += CFG.SHELL_GRAVITY * dt;
+    const step = s.vel.clone().multiplyScalar(dt);
+    const p1 = p0.clone().add(step);
+
+    // 射线检测：命中建筑 / 地面 / 静态物
+    const dirN = step.clone().normalize();
+    const dist = step.length();
+    const ray = new THREE.Raycaster(p0, dirN, 0, dist + 0.25);
+
+    let hit = null;
+    // 城市包围盒粗筛
+    const bd = hitBuildings(ray, p0, p1);
+    if (bd) hit = bd;
+    if (!hit && p1.y <= 0.05) {
+      const t = (0 - p0.y) / (p1.y - p0.y || 1);
+      hit = { point: new THREE.Vector3().lerpVectors(p0, p1, Math.max(0, Math.min(1, t))),
+              normal: new THREE.Vector3(0, 1, 0), ground: true };
+    }
+
+    if (hit) {
+      s.active = false; s.mesh.visible = false;
+      onHit(hit.point, s.vel.clone());
+      continue;
+    }
+
+    s.mesh.position.copy(p1);
+    s.mesh.rotation.x += dt * 14; s.mesh.rotation.z += dt * 9;
+
+    // 拖尾推进
+    const tr = s.trail;
+    tr.pts.pop();
+    tr.pts.unshift(p1.clone());
+    const pos = tr.geo.attributes.position.array;
+    const al = tr.geo.attributes.alpha.array;
+    for (let i = 0; i < tr.N; i++) {
+      pos[i * 3] = tr.pts[i].x; pos[i * 3 + 1] = tr.pts[i].y; pos[i * 3 + 2] = tr.pts[i].z;
+      al[i] = Math.pow(1 - i / tr.N, 1.7) * 0.9;
+    }
+    tr.geo.attributes.position.needsUpdate = true;
+    tr.geo.attributes.alpha.needsUpdate = true;
+  }
+}
+
+/* 射线 × 建筑体素。
+   新架构下直接遍历**网格范围**（而不是几万个方块），用步进采样找最近命中，
+   复杂度只跟"射线穿过多少格"有关，跟楼有几万块无关。 */
+const _ray = new THREE.Ray();
+const _tmpV = new THREE.Vector3();
+const _box = new THREE.Box3();
+function hitBuildings(ray, p0, p1) {
+  /* ⚠️ 入参 ray 必须带 `.ray`（THREE.Ray）。传错类型时宁可静默不命中，
+     也不要抛错 —— 这个函数在每帧的弹道循环里被调用，
+     一次抛错就会打断整个 stepSim（表现为镜头/物理全停）。
+     传入 CANNON.Ray 是典型误用：它没有 .ray 字段。 */
+  if (!ray || !ray.ray || typeof ray.ray.copy !== 'function') return null;
+  _ray.copy(ray.ray);
+  let best = null, bestT = Infinity;
+
+  /* ⚠️ 这里原来有个致命的采样上限 bug，表现是"前两炮能打中，之后再也打不中"：
+     写成 `maxT = min(200, p0.distanceTo(p1) + 4)`，
+     本意是"这一帧的路程再加点余量"。但炮弹速度 95、物理步长 1/60，
+     **一帧只走 1.58 单位**，于是 maxT ≈ 5.6 —— 采样在离射线起点 5.6 米处就停了。
+     而玩家常站在离楼 20 米外：前几炮之所以能中，是因为楼体在爆点附近
+     （上一炮刚削出的缺口很近），一旦站位稍远，射线够不到墙面 → 整发穿过去。
+
+     正确做法：采样上限要够到"射线与楼 AABB 的真实交点"，
+     用 slab 法解出入参区间 [tMin, tMax]，只在这个区间内采样。
+     这样不管站多远都能命中，且不会白扫区间外的空间。 */
+  const o = _ray.origin, d = _ray.direction;
+
+  for (const b of buildings) {
+    if (b.cells <= 0) continue;
+
+    /* 用网格范围算 AABB：网格是权威尺寸（含裙楼外扩） */
+    const x0 = b.wx(0) - V / 2, x1 = b.wx(b.W - 1) + V / 2;
+    const z0 = b.wz(0) - V / 2, z1 = b.wz(b.D - 1) + V / 2;
+    const y1 = b.H * V;
+    _box.min.set(x0, 0, z0);
+    _box.max.set(x1, y1, z1);
+    if (!_ray.intersectsBox(_box)) continue;
+
+    /* slab 法：逐轴求射线进入/离开 AABB 的参数 t */
+    let tMin = 0, tMax = 200, miss = false;
+    for (const ax of ['x', 'y', 'z']) {
+      const dd = d[ax];
+      const oo = o[ax];
+      const lo = _box.min[ax], hi = _box.max[ax];
+      if (Math.abs(dd) < 1e-9) {
+        if (oo < lo || oo > hi) { miss = true; break; }   // 平行且在区间外
+      } else {
+        let t1 = (lo - oo) / dd, t2 = (hi - oo) / dd;
+        if (t1 > t2) { const tmp = t1; t1 = t2; t2 = tmp; }
+        tMin = Math.max(tMin, t1);
+        tMax = Math.min(tMax, t2);
+        if (tMin > tMax) { miss = true; break; }
+      }
+    }
+    if (miss) continue;
+
+    /* 在这个区间里按**半格**步长采样（步长 < 格长，保证不漏格）。
+       ⚠️ 这里是 V 的函数，不是写死的 —— V 从 0.1 放大到 0.4 之后，
+          步长也跟着从 0.05 变成 0.2。写成常量会在 V 再变时悄悄漏格。 */
+    const step = V * 0.5;
+    for (let t = tMin + 1e-4; t <= tMax; t += step) {
+      _tmpV.copy(o).addScaledVector(d, t);
+      const gx = Math.round((_tmpV.x - b.originX) / V);
+      const gy = Math.round(_tmpV.y / V);
+      const gz = Math.round((_tmpV.z - b.originZ) / V);
+      if (gx < 0 || gx >= b.W || gy < 0 || gy >= b.H || gz < 0 || gz >= b.D) continue;
+      const lidx = b.lidx(gx, gy, gz);
+      if (b.grid[lidx] === 1) {
+        if (t < bestT) {
+          bestT = t;
+          best = {
+            point: new THREE.Vector3(b.wx(gx), b.wy(gy), b.wz(gz)),
+            cell: lidx, bld: b,
+            normal: null,
+          };
+        }
+        break;                       // 这栋楼已经找到最近命中，不必再往里扫
+      }
+    }
+  }
+  return best;
+}
+
+/* ============================== 结构坍塌 ==============================
+   目标："打掉底部支撑 → 上面的部分失去支撑、在重力作用下塌下来"。
+
+   ── 为什么不能"直接算一次就重建楼体" ──────────────────────────────
+   最直觉的实现是：削块后对整栋楼做一次 3D flood fill，标记所有能连到地面的块，
+   剩下的是悬空块，把它们整批转成碎块掉下去。
+
+   问题在于**性能与代价**被低估了两次：
+     1) flood fill 是 O(W·D·H)。V=0.1 时一栋楼的网格是 48×42×260 ≈ 52 万格，
+        一次爆炸 × 56 栋楼 = 2900 万次访问，一炮就要几百毫秒 —— 直接掉帧。
+     2) 就算填得动，也不能"瞬间整体塌"：那看起来是"楼被替换了一半"，
+        而不是"塌"。
+
+   ── 第一版做法（逐列模型）为什么失败 ──────────────────────────────
+   最初按"每一列自下而上找悬空段"来实现 —— 对**实心**楼完全正确。
+
+   但现在楼体是**外壳渲染**（见 makeBuilding 第二遍）：内部格子在生成时
+   就被清零了，网格里只留 6 个面各一层。于是 (CX,·,CZ) 这根"中心柱"
+   实际只有 y=0 一层地板壳 + y=H-1 一层屋顶壳，中间 40 多格全是空的。
+   炸掉底部 3 格 → 屋顶那 1 格悬空 → 逐列模型认为"只有 1 格要塌"。
+   实测 removed:1，楼纹丝不动。
+
+   ── 现在采用的做法：整栋承重环模型 ────────────────────────────────
+   真楼的倒塌不是"某根柱子塌"，而是"底部承重结构整体失效 → 上部整体坐下去"。
+   所以判定单位从**列**换成**楼**：
+
+     ① 量底部承重区（最下 GROUND_FLOOR = 4 层）在**整个占地**上的实心占比。
+        正常情况下接近 1（四面外墙 + 内部地板都在）；被炮弹从底部啃穿一圈
+        之后会掉到 0.5 上下。
+     ② 占比 < THRESH = 0.55 → 判定"承重失效"。此时找出**最低的残留承重层**
+        floorY（自下而上第一层还有实心的一层）：它就是即将失稳的那条线。
+     ③ 把 floorY 及其以上**所有实心格**按高度升序（下面先掉）分批脱落。
+        一批有上限（COLLAPSE_MAX_PER_FRAME × 2），于是视觉上是"逐层往下坐"，
+        而不是"瞬间替换"。低层先离开，上面的格子自然在下一轮变成新的悬空段。
+     ④ 一次掉不完的，登记进 collapseTrail，主循环每帧推一轮 —— 没有这一步
+        一炮只炸出一个缺口，看不到"楼在塌"。
+
+   支撑判定是 O(W·D·GROUND_FLOOR + 脱落格数)，与楼高无关。
+   全楼 3D flood fill 在 V=0.1 时是 52 万格 × 56 栋 = 一炮几百毫秒，
+   那条路依然走不通（见上面注释），但现在这个也不需要对整栋楼做连通性分析。
+
+   ⚠️ 与 explode 的关系：它由 explode 调用（削块之后、计分之前）。
+      同一炮里被坍塌摧毁的块也计入 stats.destroyed —— 玩家看到"整片墙垮了"，
+      数字却不涨，会以为是 bug。 */
+
+/* 底部承重区的高度（格）。4 格 = 1.6 世界单位 ≈ 一层的量级：
+   恰好是炮弹（爆炸半径 3.0 单位）能一次啃穿的范围。 */
+const GROUND_FLOOR = 4;
+
+/* 承重占比跌到"自身完好基线"的多少比例以下 → 判定这栋楼"底部被掏空"。
+
+   ⚠️⚠️⚠️ 这里本来是一个**绝对阈值**（0.44），是一处很隐蔽的设计缺陷，
+        直到我把楼加宽（10×10 → 20×18）才暴露出来：
+
+          完好楼的 frac = (地面整层板 + 3 层外圈周长) / (占地 × 4)
+                        = (W·D + 3·P) / (4·W·D)，  P = 2(W+D) - 4
+
+          这个式子**强烈依赖占地的宽高比**：
+            10×10 → (100 + 108)/400  = 0.52    ← 高于 0.44，安全
+            20×18 → (360 + 216)/1440 = 0.40    ← **低于 0.44，误判！**
+
+          周长随边长线性增长，面积平方增长 —— 所以楼一宽，
+          "满血 frac" 就自己往下掉，最后跌破绝对阈值。
+          后果非常严重：**完好的楼在附近随便挨一发炮弹就会整栋自塌**
+          （collapseCheck 对爆心半径内的每一栋楼都跑一遍，不只是被命中的那栋）。
+
+          也就是说，这个阈值本质上不该是常数 —— 它是"占地形状的函数"。
+          凡是这种"常数其实依赖别的变量"的地方，迟早会在某次参数调整后爆掉。
+
+   修法：**改成相对基线**。每栋楼在生成时记录自己完好状态下的 frac（frac0），
+        判定改成"比自己的基线掉了多少"：
+            当前 frac < frac0 × SUPPORT_RATIO  → 底部真的被掏空了
+        这样它与楼宽、体素尺寸、退台形状**全部解耦**，
+        以后再怎么改场地/分辨率都不会再出现这种"调 A 崩 B"。
+        另外真实结构工程里本来也是这么判的：看的是"剩余承载 / 原始承载"的**损伤度**，
+        而不是某个绝对的截面含钢率。
+
+   保留 SUPPORT_THRESH 只作为**兜底**（万一某栋楼没记上基线）。 */
+const SUPPORT_RATIO = 0.65;      // 相对自身基线的损伤度阈值
+const SUPPORT_THRESH = 0.44;     // 兜底绝对阈值（仅当 frac0 缺失时使用）
+
+/* 承重扫描：返回 { frac, floorY, belowAlive, belowTotal }
+     frac       —— 底部 GROUND_FLOOR 层的实心占比（0..1）
+     floorY     —— 自下而上第一层"还有实心"的高度；全都空则 = -1
+     belowAlive / belowTotal —— 分子/分母（调试用） */
+function supportOf(b) {
+  const W = b.W, D = b.D, g = b.grid;
+  const Hc = Math.min(GROUND_FLOOR, b.H);
+  let alive = 0;
+  const total = W * D * Hc;
+  for (let y = 0; y < Hc; y++) {
+    const base = y * D * W;
+    for (let x = 0; x < W; x++) {
+      for (let z = 0; z < D; z++) if (g[base + z * W + x] === 1) alive++;
+    }
+  }
+  /* 自下而上找第一层还有实心的 —— 它就是要塌的起始层。
+     全空（楼已经被打没了）返回 -1，调用方直接跳过。 */
+  let floorY = -1;
+  for (let y = 0; y < b.H; y++) {
+    const base = y * D * W;
+    let any = false;
+    for (let i = 0; i < W * D; i++) if (g[base + i] === 1) { any = true; break; }
+    if (any) { floorY = y; break; }
+  }
+  return { frac: total > 0 ? alive / total : 1, floorY, belowAlive: alive, belowTotal: total };
+}
+
+let collapseDropped = 0;      // 累计因坍塌脱落的块数（供 HUD/调试查看）
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   悬空块判定：从地面向上 flood fill 求「接地区域」，够不到地面的实心格 = 悬空。
+
+   ── 为什么原来那套（承重占比）不够 ──────────────────────────────────
+   承重占比只回答一个问题："**底部**还在不在"。它对"整栋楼从底部被掏空
+   → 上部整体失稳"这个场景是对的，但对用户提的另一个场景**完全不成立**：
+
+      「当房屋从中间断开（某层出现空缺或被移除）时，上方悬空的部分不会下落」
+
+   举个具体例子：把 30 层楼中间的第 15 层整圈打掉。
+     · 底部 → 完好，frac 依然 0.5 左右，远高于闸门 0.44 → 判定"站得住"
+     · 实际  → 16~30 层是一个**悬在半空的整块**，底下完全没有支撑
+   承重模型对它一点办法都没有 —— 它压根不看"中间断没断"。
+
+   ── 现在补上的模型 ─────────────────────────────────────────────────
+   物理上"有没有支撑"的定义是**连通性**：一块方块站得住，当且仅当存在一条
+   只经过实心格、且能走到地面（y=0 那一层）的路径。
+   于是：
+     ① 从 y=0 的所有实心格出发做 6 邻域 BFS，标记所有可达格（= 接地的）
+     ② 遍历全楼，凡是**实心但不可达**的格，就是悬空块
+     ③ 悬空块按高度升序脱落（下面先掉，和 dropFrom 同一个道理）
+
+   ── 性能 ───────────────────────────────────────────────────────────
+   整栋楼 O(W·D·H)。现在 V=0.4，一栋楼的网格是 12×12×90 ≈ 1.3 万格
+   （外壳占比低，实际访问量更小），56 栋全扫也就 70 万次 —— 一炮几毫秒，
+   完全可接受。
+   ⚠️ 但它**不能每帧跑**：collapsePump 是每帧调用的。
+      所以只在两种时机做全量连通性分析：
+        · 一次爆炸之后（collapseCheck 里）
+        · 余波推进且"这一轮确实削掉了东西"之后（用脏标记触发）
+      中间帧沿用缓存的悬空集合，不做重算。
+
+   ── 与承重模型的关系（**不冲突**）──────────────────────────────────
+   两个模型各管一半场景，输出汇聚到同一个出口 releaseFloating()：
+     · 承重模型 —— 底部整体被掏空 → 整栋"坐下去"
+     · 连通性模型 —— 中间断了 → 断了以上那截单独掉下来
+   两者都会产出"要脱落的格"，但**会不会重复脱落同一格**？
+   不会：脱落一律走 detachVoxel()，它第一句就检查 `grid[lidx] !== 1`，
+   已经被摘掉的格返回 null、直接跳过。所以即使两个模型选中了同一批格，
+   第二遍也是空转，不会出现"摘一次、掉两块"的账错。
+   ─────────────────────────────────────────────────────────────────────────── */
+
+/* 复用的 BFS 缓冲：按需扩容，避免每次分析都 tens of KB 的分配。
+   ⚠️ 三个 Uint8Array 的长度都跟"当前这栋楼的网格大小"绑定，
+      换楼时要重新分配（下面 seen.size !== n 的判断就是干这个的）。 */
+let _supSeen = new Uint8Array(0);
+let _supQueue = new Int32Array(0);
+
+/* 求一栋楼里**所有接地的实心格**（能通过实心格路径走到 y=0）。
+   返回 Uint8Array，1 = 接地、0 = 悬空/空。 */
+function groundedMask(b) {
+  const W = b.W, D = b.D, H = b.H, g = b.grid;
+  const n = W * D * H;
+  if (_supSeen.length !== n) {
+    _supSeen = new Uint8Array(n);
+    _supQueue = new Int32Array(n);
+  } else {
+    _supSeen.fill(0);
+  }
+  const seen = _supSeen;
+  const q = _supQueue;
+  let qh = 0, qt = 0;
+
+  /* ① 种子：y=0 这一层（真正的地面）的所有实心格。
+     ⚠️ 不种 y=0 的话，一栋"底部被炸空"的楼会一个种子都没有，
+        整栋都被判成悬空 —— 那是"必塌"而不是"该塌的才塌"。
+     但反过来，底部真被炸空时**确实应该整栋塌**，所以这里没问题：
+     种子只在 y=0 这一格平面找，底部空了就是没有种子，
+     上面的外壳自然全部不可达 → 全掉。这与承重模型给出的结论一致。 */
+  const DWi = D * W;
+  for (let i = 0; i < DWi; i++) {
+    if (g[i] === 1 && !seen[i]) { seen[i] = 1; q[qt++] = i; }
+  }
+
+  /* ② 6 邻域 BFS。用整数增量代替 x/y/z 三重循环 —— 网格是稠密的，
+     整数运算比反解坐标快得多。
+     ⚠️ 索引布局是 lidx = (y*D + z)*W + x，所以：
+          ±X → ∓1 步（同一 z 行内）
+          ±Z → ∓W 步（同一 y 平面内换行）
+          ±Y → ∓W*D 步（换层）
+        x 的越界**不能**用 `x > 0` 判 —— 那样漏判 z 行交界处
+        （x=W-1 的下一格正好是下一行 x=0，会被当成 ±X 邻居）。
+        必须对 ±X 额外判断 x 的边界。 */
+  const stepZ = W, stepY = D * W;
+  while (qh < qt) {
+    const cur = q[qh++];
+    const x = cur % W;
+    const y = Math.floor(cur / stepY);
+    const z = Math.floor(cur / W) % D;
+    /* ±X —— 只在同一行内移动 */
+    if (x > 0)     { const j = cur - 1; if (!seen[j] && g[j] === 1) { seen[j] = 1; q[qt++] = j; } }
+    if (x < W - 1) { const j = cur + 1; if (!seen[j] && g[j] === 1) { seen[j] = 1; q[qt++] = j; } }
+    /* ±Z */
+    if (z > 0)     { const j = cur - stepZ; if (!seen[j] && g[j] === 1) { seen[j] = 1; q[qt++] = j; } }
+    if (z < D - 1) { const j = cur + stepZ; if (!seen[j] && g[j] === 1) { seen[j] = 1; q[qt++] = j; } }
+    /* ±Y */
+    if (y > 0)     { const j = cur - stepY; if (!seen[j] && g[j] === 1) { seen[j] = 1; q[qt++] = j; } }
+    if (y < H - 1) { const j = cur + stepY; if (!seen[j] && g[j] === 1) { seen[j] = 1; q[qt++] = j; } }
+  }
+  return seen;
+}
+
+/* 收集一栋楼里的悬空格（实心 && 不接地），按高度升序返回 lidx 数组。
+   `minCount` 是闸门：悬空块少于它就不算"塌"，避免削掉一块就触发。 */
+function floatingCells(b, minCount) {
+  const W = b.W, D = b.D, H = b.H, g = b.grid, seen = groundedMask(b);
+  const out = [];
+  for (let y = 0; y < H; y++) {
+    const base = y * W * D;
+    for (let i = 0; i < W * D; i++) {
+      const lidx = base + i;
+      if (g[lidx] === 1 && !seen[lidx]) out.push(lidx);
+    }
+  }
+  /* 已经是"自下而上逐层扫"的，所以 out 天然就是高度升序 —— 不用再 sort。
+     （sort 一栋楼几百项也不贵，但没必要。） */
+  return out.length >= minCount ? out : null;
+}
+
+/* 把悬空格转成碎块脱落。
+   与 dropFrom 的区别：**只摘传入的那批格**，不是"floorY 以上全部"。
+   这正是"中间断了 → 上面那截掉"所要求的语义。 */
+function releaseFloating(b, cells, quota) {
+  const room = CFG.MAX_FLYING - flyCount;
+  const cap = Math.min(quota, room);
+  if (cap <= 0) return { dropped: 0, remaining: -1 };
+  const n = Math.min(cells.length, cap);
+  const ex = COLLAPSE_EXIT;
+  let dropped = 0;
+  for (let i = 0; i < n; i++) {
+    const lidx = cells[i];
+    const info = detachVoxel(b, lidx);
+    if (!info) continue;              // 已被别的模型摘走 → 跳过（防重复计数）
+    b.cells--; dropped++;
+    /* 悬空块是"原地失重下落"，横向散开要比承重坍塌更小 ——
+       它应该是"整片坐下去"，而不是"炸开"。 */
+    _colImp.set(
+      (Math.random() - .5) * ex * 0.6,
+      -Math.abs(ex) * 0.2,
+      (Math.random() - .5) * ex * 0.6
+    );
+    const spinK = 9;
+    _colSpin.set((Math.random() - .5) * spinK, (Math.random() - .5) * spinK,
+                 (Math.random() - .5) * spinK);
+    spawnDebris(info.wp, info.color, _colImp, _colSpin);
+  }
+  return { dropped, remaining: cells.length - n };
+}
+
+/* 悬空块检查：这是"中间断开"场景的入口。
+   返回 { dropped, remaining }，语义同 dropFrom。 */
+function collapseFloating(b, quota) {
+  /* 闸门用 CFG.COLLAPSE_MIN_UNSUPPORTED（默认 3）：
+     少于 3 块的悬空不值得触发一次"塌"，否则削掉墙角两块就会看到
+     一栋楼"抖一下"，反而假。 */
+  const cells = floatingCells(b, CFG.COLLAPSE_MIN_UNSUPPORTED);
+  if (!cells) return { dropped: 0, remaining: 0, found: 0 };
+  const r = releaseFloating(b, cells, quota);
+  return { ...r, found: cells.length };
+}
+
+/* 单轮坍塌预算：一次最多脱落多少格。
+   楼的外壳总共 ~700 格，分 2~3 轮倒完 → 肉眼能看清"逐层往下坐"。
+   取值比 CFG.COLLAPSE_MAX_PER_FRAME 大 —— 那个是"每帧上限"，这里是"每轮上限"，
+   一轮 = 一次爆炸 或 一次余波推进，两者不是同一个时间尺度。 */
+const COLLAPSE_ROUND_CAP = 900;
+
+/* ---------------------------------------------------------------------------
+   ⚠️ 一个隐蔽耦合：碎块池是**共享**的。
+   explode 的单炮预算 1800 + 坍塌单轮预算 900 = 2700，池子只有 2600 格。
+   ⚠️ 症状不是"碎块少"，而是**看起来像瞬间消失**：池满时 spawnDebris 直接
+      落空，于是整栋楼 1386 格从 grid 里被摘掉、一个碎块都没进场景 ——
+      用户明确要求"不要使用直接消失的效果"，这条会被悄悄违反。
+   ⚠️ 排查时最容易看错的地方：这些"消失"的块**从来不存在于 flyMesh 里**，
+      所以任何"按缓动着色"的检测都拍不到它们；它们只体现在
+      stats.destroyed 的增量远大于 flyCount 的增量。
+   处理：按实时剩余容量收窄 quota，保证"摘掉的每一格都配到了碎块"。
+   这一轮放不下的留给下一轮（collapseTrail），宁可慢一点，不凭空蒸发。
+   --------------------------------------------------------------------------- */
+
+/* 把一栋楼 floorY 之上的实心格按高度升序脱落。
+   返回 { dropped, remaining }：
+     dropped   —— 本次真正脱落（= 真配到碎块）的格数
+     remaining —— 还剩多少格没掉；-1 表示"被碎块池挡住，不是塌完了" */
+const _colImp = new THREE.Vector3();
+const _colSpin = new THREE.Vector3();
+function dropFrom(b, floorY, quota) {
+  /* 碎块池剩余容量 = 这一轮真正能"配到碎块"的上限。
+     ⚠️ 必须用 flyCount 实时取，不能缓存 —— 池子里可能还留着上一栋楼的
+        全套碎块（寿命 9 秒，同时存在好几栋很正常）。 */
+  const room = CFG.MAX_FLYING - flyCount;
+  const cap = Math.min(quota, room);
+  /* 池子已经满了：这一轮一格都不摘。返回 -1 而不是 0，让调用方知道
+     "是池子挡住了、不是塌完了"，从而**保留** collapseTrail 条目。 */
+  if (cap <= 0) return { dropped: 0, remaining: -1 };
+
+  /* 收集 floorY 以上的实心格。
+     ⚠️ 必须现场收集而不是缓存 —— 上一轮脱落之后，下面没了支撑的格子
+        会在下一轮被重新收进来，这正是"连锁塌"的来源。 */
+  const cells = [];
+  for (let y = floorY; y < b.H; y++) {
+    const base = y * b.D * b.W;
+    for (let x = 0; x < b.W; x++) {
+      for (let z = 0; z < b.D; z++) {
+        if (b.grid[base + z * b.W + x] === 1) cells.push([x, y, z, base + z * b.W + x]);
+      }
+    }
+  }
+  if (cells.length === 0) return { dropped: 0, remaining: 0 };
+
+  /* 高度升序：**下面先掉**。顺序是必须的 —— 低层先离开，上面的格子才会在
+     下一轮变成新的"无支撑段"；反过来先掉顶上的，底下的支撑还在，
+     整片就永远塌不干净（会像被吸走而不是塌）。 */
+  cells.sort((a, c) => a[1] - c[1]);
+  const n = Math.min(cells.length, cap);
+  const ex = COLLAPSE_EXIT;
+  let dropped = 0;
+
+  for (let i = 0; i < n; i++) {
+    const [x, y, z, lidx] = cells[i];
+    const info = detachVoxel(b, lidx);
+    if (!info) continue;
+    b.cells--; dropped++;
+    /* 脱落速度：主体朝下（重力接管），横向只给一点散开 ——
+       不然会像被炸出去一样四散，而不是"垮下来"。
+       ⚠️ 单位是 单位/秒，不是冲量：碎块刚体 mass = 1，Δv = impulse。 */
+    _colImp.set(
+      (Math.random() - .5) * ex,
+      -Math.abs(ex) * 0.35,
+      (Math.random() - .5) * ex
+    );
+    /* 角速度 rad/s —— 16 rad/s ≈ 每秒转 2.5 圈，翻滚感刚好；
+       再大就看不清方块形状了。 */
+    const spinK = 16;
+    _colSpin.set((Math.random() - .5) * spinK, (Math.random() - .5) * spinK,
+                 (Math.random() - .5) * spinK);
+    spawnDebris(info.wp, info.color, _colImp, _colSpin);
+  }
+  return { dropped, remaining: cells.length - n };
+}
+
+/* 坍塌结算：把"这一轮脱落的块数"记进统计 + 给反馈。
+   抽出来是因为现在有两个模型（承重 / 连通性）都会产出脱落量，
+   如果各写一遍，迟早有一边忘了加 destroyed 或忘了 addShake。 */
+function settleCollapse(dropped) {
+  if (dropped <= 0) return;
+  collapseDropped += dropped;
+  stats.destroyed += dropped;
+  stats.score += dropped * 10;
+  stats.best = Math.max(stats.best, dropped);
+  Audio.crumble(Math.min(240, dropped * 3));
+  addShake(Math.min(1.1, 0.22 + dropped * 0.004));
+}
+
+/* 坍塌检查：爆炸之后调用（center/radius 只用于**粗筛哪几栋楼可能受影响**）。
+   ⚠️ 粗筛半径刻意放大到 1.6×爆炸半径：炮弹啃的是底部一圈，
+      承重失效的判定要看整栋楼的占地，比爆心那一小片大得多。
+
+   两个模型都在这里跑，**顺序有讲究**：
+     ① 先跑承重模型 —— 它是"整栋坐下去"，会把底部掏空的楼整体放倒。
+        跑完之后网格已经变干净，连通性分析看到的就是更新后的结构。
+     ② 再跑连通性模型 —— 它负责"中间断开 → 上面那截单独掉"。
+        反过来先跑连通性的话，底部被掏空的楼会因为"y=0 全空 → 无种子"
+        被整栋判成悬空，那个"整栋塌"会被当成"悬空块"处理，
+        观感上从"坐下去"变成"整片往下掉"，虽然也能塌但不如前者像楼。 */
+function collapseCheck(center, radius) {
+  if (!CFG.COLLAPSE) return 0;
+  let total = 0;
+
+  for (const b of buildings) {
+    if (b.cells <= 0) continue;
+    /* ① AABB 粗筛：爆心不在楼附近就跳过。
+       用网格边界（含裙楼外扩 / PAD 余量），不是 wC × dC。 */
+    const bx0 = b.wx(0) - V / 2, bx1 = b.wx(b.W - 1) + V / 2;
+    const bz0 = b.wz(0) - V / 2, bz1 = b.wz(b.D - 1) + V / 2;
+    if (center.x + radius < bx0 || center.x - radius > bx1) continue;
+    if (center.z + radius < bz0 || center.z - radius > bz1) continue;
+
+    /* ② 承重判定（底部整体是否还站得住）
+       ⚠️ 用**相对基线**，不用绝对阈值 —— 理由见 SUPPORT_RATIO 的长注释。
+          frac0 是这栋楼生成时记录的"完好 frac"，所以这里的判据是
+          "底部承载相比自己完好时损失了多少"，与楼宽/体素尺寸无关。 */
+    const sup = supportOf(b);
+    if (sup.floorY < 0) continue;                    // 楼已经空了
+    const baseFrac = b.frac0 > 0 ? b.frac0 : SUPPORT_THRESH;
+    if (sup.frac < baseFrac * SUPPORT_RATIO) {
+      /* 从最低残留层往上，本轮先倒一批 */
+      const res = dropFrom(b, sup.floorY, COLLAPSE_ROUND_CAP);
+      /* ⚠️ remaining === -1 表示"碎块池满了，一格都没摘"，不是"塌完了"。
+         这时候要**保留**余波登记（池子腾出来之后还要接着塌），
+         否则这栋楼会永远停在这个残缺状态上。 */
+      if (res.remaining === -1) {
+        collapseTrail.push({ b });
+      } else if (res.dropped > 0) {
+        total += res.dropped;
+        settleCollapse(res.dropped);
+        /* 余波：还倒不完的登记进 collapseTrail，主循环每帧推一轮。
+           这里只存**楼引用**，不缓存爆心/半径 —— 下一轮要用的是这栋楼
+           自己的新状态（新的 floorY、新的残留格），跟哪一炮打的关系不大了。 */
+        if (res.remaining > 0) collapseTrail.push({ b });
+      }
+    }
+
+    /* ③ 连通性判定（中间断开 → 上方悬空块掉落）。
+       这是本轮新补的模型，专门服务"某层出现空缺"这个场景。
+       ⚠️ 它必须在承重模型之后跑（见函数头注释）。
+       ⚠️ 与承重模型可能选中同一批格 —— 但 detachVoxel 对已摘的格
+          返回 null，所以不会重复计数，也不会"摘一次掉两块"。 */
+    const fres = collapseFloating(b, COLLAPSE_ROUND_CAP);
+    if (fres.remaining === -1) {
+      /* 池子满：登记余波，等容量腾出来再掉。 */
+      collapseTrail.push({ b });
+    } else if (fres.dropped > 0) {
+      total += fres.dropped;
+      settleCollapse(fres.dropped);
+      if (fres.remaining > 0) collapseTrail.push({ b });
+    }
+
+    checkRubble(b);
+  }
+
+  if (total > 0) refreshHUD();
+  return total;
+}
+
+/* 坍塌余波：爆炸那一刻只掉了最底下一批，上面还悬着。
+   主循环每帧推一次，把"还在坠落的楼"继续往下放 ——
+   没有这一步，一炮就只炸出一个缺口，看不到"楼在塌"。
+   ⚠️ 这里必须**原地**遍历：dropFrom 之后可能又 push 新条目，
+      直接 for..of 遍历同一个数组会无限增长（经典自噬循环）。
+   ⚠️ 池子满时要保留条目，否则这栋楼永远塌不完 —— 见 dropFrom 的注释。
+
+   ⚠️ 这里**只推承重模型的续塌**（dropFrom）。为什么不在每帧也跑连通性模型？
+      · 余波登记时这栋楼已经"正在塌"了，承重模型会一路把它放倒到底，
+        它后面的悬空块自然被 dropFrom 一并收走（dropFrom 收的是
+        floorY 以上**全部**实心格，不管接不接地）；
+      · 而连通性模型一次 O(W·D·H)，每帧 × 几十栋 = 明显掉帧。
+     所以连通性只在"爆炸之后"这一个时机做全量分析（collapseCheck），
+     那是真正会改变结构拓扑的时刻。中间帧沿用承重模型即可。 */
+function collapsePump() {
+  if (!CFG.COLLAPSE || collapseTrail.length === 0) return;
+  const batch = collapseTrail;
+  collapseTrail = [];
+  for (const t of batch) {
+    const b = t.b;
+    if (!b || b.cells <= 0) continue;
+    /* 重新取 floorY：上一轮脱落之后最低残留层可能已经变了。 */
+    const sup = supportOf(b);
+    if (sup.floorY < 0) continue;
+    const res = dropFrom(b, sup.floorY, COLLAPSE_ROUND_CAP);
+    if (res.remaining === -1) { collapseTrail.push({ b }); continue; }
+    if (res.dropped <= 0) continue;
+    settleCollapse(res.dropped);
+    if (res.remaining > 0) collapseTrail.push({ b });
+    checkRubble(b);
+    refreshHUD();
+  }
+}
+
+/* ============================== 爆炸 ============================== */
+const stats = { destroyed: 0, score: 0, buildingsRazed: 0, shots: 0, best: 0 };
+let camShake = 0, camShakeMag = 0;
+
+/* collapseTrail 是 collapseCheck 用的"还在倒塌中的楼"列表。
+   ⚠️ 声明必须在这里、而不是函数定义旁边 —— collapseCheck 会在 crate 阶段
+      之外被 explode 调用，但 collapseTrail 是 let，存在 TDZ。
+      放在这段（所有函数定义之后、首次调用之前）是安全的。 */
+let collapseTrail = [];
+
+/* 屏幕震动 */
+function addShake(mag) { camShakeMag = Math.max(camShakeMag, mag); camShake = Math.max(camShake, 1); }
+
+/* 闪光 */
+const flashEl = document.getElementById('flash');
+let flashT = 0;
+function addFlash(k) { flashT = Math.max(flashT, k); }
+
+function explode(center, shellVel) {
+  /* ---- 性能预算：**收窄爆炸半径**，而不是"让一部分方块消失" ----
+     池子越满，这一炮的爆炸半径越小。玩家看到的是"爆炸变小了"，
+     而不是"掉帧"或"方块不出现"。
+
+     ⚠️ 这里踩过一个很隐蔽的坑，值得写下来：
+        旧写法是"半径不变，但 flying 超过某个配额之后，**剩下的块照旧
+        从 grid 里摘掉、却不生成碎块**"。它看起来只是"远处的块不飞"，
+        实际上等于给用户明确要求禁止的"直接消失"开了一个后门 ——
+        实测一炮摘掉 532 格只生成 266 个碎块，一半凭空蒸发。
+        正确的关系是：**摘掉多少格，就必须生成多少个碎块**。
+        所以"池子不够"只能通过"少摘"来表达，而少摘的唯一干净手段
+        就是缩小半径（下面的 radius 已经含了 tier 收缩），
+        绝不是"摘了但不给碎块"。
+     结论：删掉那个 flying 配额分支，只保留"池子真的一个空位都没有"
+     时才停下来。 */
+  const tier = typeof perfTier === 'function' ? perfTier() : 0;
+  const radius = CFG.BLAST_R * (1 - tier * 0.35);
+  const r2 = radius * radius;
+
+  /* ── 碎片飞散（不再是"三级削落 + 核心抹除"）─────────────────────────
+     旧实现把命中球分三级：core（d < 0.42R）**直接抹除、不留碎块**。
+     那是为了在 V=0.1（一炮几千块）时把刚体数量压下来 —— 但代价是
+     爆炸中心是"凭空消失"的，像被橡皮擦擦掉，而不是被炸开。
+
+     现在 V=0.4、格数掉了 64 倍，一炮的方块数从 ~3600 掉到 ~60，
+     完全可以做到"**命中范围内每一块都变成独立碎块飞出去**"：
+       · 全部给初速度（沿爆心→方块方向，带随机扰动）
+       · 全部给随机角速度（翻滚）
+       · 受重力自由下落，彼此碰撞、和地面碰撞
+       · 落地静置后残留 REST_LINGER 秒再淡出
+     于是"炸开"和"炸没了"的区别终于能被看见。
+
+     ⚠️ 唯一的例外是**内部格**（六个面都被邻居包住的格子）。
+        外壳生成阶段已经把它们清零了，所以正常情况下不存在。
+        但坍塌之后可能出现"外面塌了、里面还剩一块"的情形 —— 那种格子
+        就算脱离也看不见，徒占刚体，所以照旧直接移除。 */
+
+  Audio.explode(1.0 - tier * 0.18);
+  spawnShock(center, radius);
+  spawnSparks(center, tier > 0.5 ? 30 : 56, 26, 0xfff3c4, 0xff5a1a);
+  spawnDust(center, tier > 0.5 ? 9 : 15, radius * 1.05);
+
+  const pushBase = BLAST_PUSH;
+  let affected = 0;      // 总共移除的方块数
+  let flying = 0;        // 其中变成碎块的数量
+  const impulse = new THREE.Vector3();
+  const spin = new THREE.Vector3();
+
+  /* 只遍历"爆心附近的格"——而不是全城几万个方块。
+     先把爆心换算成每栋楼的格坐标，取一个 radius 大小的立方窗口。 */
+  const rC = Math.ceil(radius / V) + 1;         // 半径对应多少格
+
+  for (const b of buildings) {
+    if (b.cells <= 0) continue;
+
+    /* 用网格 AABB 粗筛（用网格算，含裙楼外扩） */
+    const bx0 = b.wx(0) - V / 2, bx1 = b.wx(b.W - 1) + V / 2;
+    const bz0 = b.wz(0) - V / 2, bz1 = b.wz(b.D - 1) + V / 2;
+    if (center.x + radius < bx0 || center.x - radius > bx1) continue;
+    if (center.z + radius < bz0 || center.z - radius > bz1) continue;
+    if (center.y - radius > b.H * V) continue;
+
+    /* 爆心在网格坐标系里的位置 */
+    const cx = (center.x - b.originX) / V;
+    const cy = center.y / V;
+    const cz = (center.z - b.originZ) / V;
+
+    const gx0 = Math.max(0, Math.floor(cx - rC)), gx1 = Math.min(b.W - 1, Math.ceil(cx + rC));
+    const gy0 = Math.max(0, Math.floor(cy - rC)), gy1 = Math.min(b.H - 1, Math.ceil(cy + rC));
+    const gz0 = Math.max(0, Math.floor(cz - rC)), gz1 = Math.min(b.D - 1, Math.ceil(cz + rC));
+
+    /* 收集命中方块，按距离排序（近的先处理 → 近处飞得更猛，冲击感从中心往外衰减） */
+    const hits = [];
+    for (let y = gy0; y <= gy1; y++) {
+      for (let x = gx0; x <= gx1; x++) {
+        for (let z = gz0; z <= gz1; z++) {
+          const lidx = b.lidx(x, y, z);
+          if (b.grid[lidx] !== 1) continue;
+          const dx = b.wx(x) - center.x, dy = b.wy(y) - center.y, dz = b.wz(z) - center.z;
+          const d2 = dx * dx + dy * dy + dz * dz;
+          if (d2 > r2) continue;
+          hits.push({ lidx, d: Math.sqrt(d2) });
+        }
+      }
+    }
+    if (hits.length === 0) continue;
+    hits.sort((a, b2) => a.d - b2.d);
+
+    for (const h of hits) {
+      /* 边缘淡化：最外圈那一层用概率削，避免爆炸边界是"完美球面"。
+         ⚠️ 这条 continue 发生在 detachVoxel **之前** —— 也就是"根本没碰它"，
+            不是"摘了但不给碎块"。这个顺序是必须的：一旦先摘后判，
+            就又变回"凭空蒸发"了。 */
+      const dn = h.d / radius;             // 归一化距离 0..1
+      if (dn > 0.86 && Math.random() > 0.55) continue;
+
+      /* ⚠️ 池子一个空位都没有 → 停下来。
+         这是**唯一**允许"少摘"的出口，而且它发生在摘除之前，
+         所以"摘掉的每一格都配到了碎块"这条不变式始终成立。
+         正常情况下走不到这里：perfTier 已经把半径收窄了。 */
+      if (flyCount >= CFG.MAX_FLYING) break;
+
+      const info = detachVoxel(b, h.lidx);
+      if (!info) continue;
+      affected++;
+      b.cells--;
+
+      flying++;
+      const dx = info.wp.x - center.x, dy = info.wp.y - center.y, dz = info.wp.z - center.z;
+      const d = Math.max(0.12, Math.sqrt(dx * dx + dy * dy + dz * dz));
+      const f = Math.pow(1 - dn, 2);       // 越近越猛
+
+      /* 初速度：径向为主 + 向上抬升（否则碎块都贴着地面扫射，堆不起来） */
+      const radial = pushBase * (0.55 + f * 1.35);
+      impulse.set(
+        dx / d * radial,
+        (dy / d * 0.55 + 0.62 + Math.random() * 0.5) * pushBase * (0.40 + f * 1.30),
+        dz / d * radial
+      );
+      if (shellVel) {
+        /* 炮弹自身的动量带一点到碎块上（"被炮弹推着走"的方向感）。
+           0.11 是把炮弹蒙皮速度（~95 单位/秒）折算到碎块上的比例。
+           ⚠️ 以前这里乘了 K_V/64 —— 那是同一个质量口径误解的残留。 */
+        impulse.x += shellVel.x * 0.11;
+        impulse.y += Math.max(0, shellVel.y) * 0.05;
+        impulse.z += shellVel.z * 0.11;
+      }
+      impulse.x += (Math.random() - .5) * pushBase * 0.55;
+      impulse.y += Math.random() * pushBase * 0.45;
+      impulse.z += (Math.random() - .5) * pushBase * 0.55;
+
+      /* 随机角速度：翻滚。rad/s，与 V 无关（惯性张量随质量走，但这里
+         表现的是"转速"本身，直接用 rad/s 标定最直白）。
+         26 rad/s ≈ 每秒 4 圈，高速旋转带来的"炸开感"很明显。 */
+      const spinK = 26;
+      spin.set((Math.random() - .5) * spinK, (Math.random() - .5) * spinK,
+               (Math.random() - .5) * spinK);
+      spawnDebris(info.wp, info.color, impulse, spin);
+    }
+
+    checkRubble(b);
+  }
+
+  /* ── 结构坍塌：爆炸之后立刻评估一次支撑 ──────────────────────────────
+     放在削块之后、计分之前。原因：坍塌掉的块也算"被这次爆炸摧毁"，
+     玩家期待的数字包含它们（打掉承重墙 → 上面整片跟着垮，这才叫拆迁）。
+     见 collapseCheck() 的注释。 */
+  if (CFG.COLLAPSE) collapseCheck(center, radius * 1.6);
+
+  // 命中静态楼体过少时（打到地上），也给一点地面尘土
+  if (affected === 0) spawnDust(center, 6, 3.0);
+
+  Audio.crumble(affected);
+
+  // 计分
+  stats.destroyed += affected;
+  const gained = affected * 10 + Math.round(affected / 25) * 50;
+  stats.score += gained;
+  stats.best = Math.max(stats.best, affected);
+
+  // 反馈
+  const mag = Math.min(1.5, 0.32 + affected * 0.0035);
+  addShake(mag);
+  addFlash(Math.min(0.55, affected * 0.0028));
+  showHitmarker(affected);
+  if (affected >= 90) {
+    const combo = document.getElementById('combo');
+    combo.textContent = `重创！ ${affected} 块 · +${gained}`;
+    combo.classList.add('on');
+    clearTimeout(combo._t);
+    combo._t = setTimeout(() => combo.classList.remove('on'), 1400);
+  }
+  refreshHUD();
+}
+
+/* 命中标记 */
+const hmEl = document.getElementById('hitmarker');
+let hmT = 0;
+function showHitmarker(n) {
+  hmT = 1;
+  const k = Math.min(1, 0.5 + n / 60);
+  hmEl.style.opacity = String(k);
+  hmEl.style.width = hmEl.style.height = `${16 + Math.min(12, n * 0.35)}px`;
+}
+function updateHitmarker(dt) {
+  if (hmT <= 0) return;
+  hmT -= dt * 4.5;
+  hmEl.style.opacity = String(Math.max(0, hmT) * 0.9);
+}
+
+/* ============================== 玩家角色 ============================== */
+/* 角色用胶囊刚体 + 组合式可视化（身体/头/腿/炮） */
+const player = {
+  body: null,
+  mesh: new THREE.Group(),
+  onGround: false,
+  cocd: 0,
+  aim: new THREE.Vector3(0, 0, -1),
+  vel: new THREE.Vector3(),
+  jumpCd: 0,
+  meshParts: {},
+};
+
+function buildPlayer() {
+  const g = player.mesh;
+
+  const darkMat = new THREE.MeshLambertMaterial({ color: 0x2b3a52 });
+  const suitMat = new THREE.MeshLambertMaterial({ color: 0x3f7fd0 });
+  const skinMat = new THREE.MeshLambertMaterial({ color: 0xe8b48c });
+  const accentMat = new THREE.MeshLambertMaterial({ color: 0xffd166 });
+  const metalMat = new THREE.MeshLambertMaterial({ color: 0x556070 });
+
+  // 躯干
+  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.72, 0.38), suitMat);
+  torso.position.y = 0.98; g.add(torso);
+  const chest = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.2, 0.42), accentMat);
+  chest.position.y = 1.06; g.add(chest);
+
+  // 头
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.42, 0.42), skinMat);
+  head.position.y = 1.58; g.add(head);
+  const helmet = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.22, 0.48), darkMat);
+  helmet.position.y = 1.74; g.add(helmet);
+  const visor = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.13, 0.05),
+    new THREE.MeshLambertMaterial({ color: 0x6ce0ff, emissive: 0x1a6a8a }));
+  visor.position.set(0, 1.6, 0.21); g.add(visor);
+
+  // 腿
+  const legGeo = new THREE.BoxGeometry(0.22, 0.62, 0.24);
+  const legL = new THREE.Mesh(legGeo, darkMat); legL.position.set(-0.16, 0.31, 0); g.add(legL);
+  const legR = new THREE.Mesh(legGeo, darkMat); legR.position.set(0.16, 0.31, 0); g.add(legR);
+
+  // 手臂
+  const armGeo = new THREE.BoxGeometry(0.17, 0.5, 0.19);
+  const armL = new THREE.Mesh(armGeo, suitMat); armL.position.set(-0.4, 1.06, 0); g.add(armL);
+
+  // 大炮（右手持）—— 一个粗管子，带炮口环
+  const cannonGroup = new THREE.Group();
+  const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.19, 0.22, 1.35, 12), metalMat);
+  barrel.rotation.x = Math.PI / 2;
+  barrel.position.set(0, 0, 0.45);
+  cannonGroup.add(barrel);
+  const muzzle = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.26, 0.16, 12), accentMat);
+  muzzle.rotation.x = Math.PI / 2; muzzle.position.set(0, 0, 1.12);
+  cannonGroup.add(muzzle);
+  const grip = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.3, 0.16), darkMat);
+  grip.position.set(0, -0.24, -0.12);
+  cannonGroup.add(grip);
+  // 炮口光晕
+  const glow = new THREE.Mesh(new THREE.SphereGeometry(0.3, 10, 8),
+    new THREE.MeshBasicMaterial({ color: 0xffb347, transparent: true, opacity: 0 }));
+  glow.position.set(0, 0, 1.2);
+  cannonGroup.add(glow);
+  player.meshParts.glow = glow;
+
+  cannonGroup.position.set(0.46, 1.12, 0.1);
+  g.add(cannonGroup);
+  player.meshParts.cannon = cannonGroup;
+  player.meshParts.armR = cannonGroup;
+
+  // 收集需要逐个投影的部件
+  player.meshParts.legs = [legL, legR];
+  player.meshParts.torso = torso;
+  player.meshParts.head = head;
+
+  g.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+
+  /* ⚠️ 体素放大 4 倍后，角色只有 1.9 / 0.4 ≈ 5 格高 ——
+     而下面这套模型的原始尺寸是给"19 格高的角色"配的（总高约 1.95 世界单位）。
+     所以整体缩到 PLAYER_SCALE（0.62）—— 缩完约 1.21 单位 ≈ 3 格，
+     在一个 0.4 单位的方块世界里不至于被一格方块比下去。
+     缩放施加在 group 上，物理胶囊（PLAYER_R）与世界坐标都不受影响，
+     所以移动、跳跃、相机全都不用改。 */
+  g.scale.setScalar(CFG.PLAYER_SCALE);
+
+  // 脚下阴影盘（增强落地感）
+  const shadowDisc = new THREE.Mesh(
+    new THREE.CircleGeometry(0.62, 24),
+    new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.3, depthWrite: false })
+  );
+  shadowDisc.rotation.x = -Math.PI / 2;
+  shadowDisc.position.y = 0.03;
+  scene.add(shadowDisc);
+  player.meshParts.disc = shadowDisc;
+
+  scene.add(g);
+
+  // 物理体：胶囊（用 Sphere 组合更稳）
+  const r = CFG.PLAYER_R;
+  const shape = new CANNON.Sphere(r);
+  const body = new CANNON.Body({
+    /* mass 必须 > 0（否则会被当成静态体，完全不积分速度）。
+       摩擦力交给 playerMat ↔ groundMat 的零摩擦 ContactMaterial 处理。 */
+    mass: 5, material: playerMat,
+    linearDamping: 0, angularDamping: 1, fixedRotation: true,
+    collisionFilterGroup: GROUP_PLAYER, collisionFilterMask: PLAYER_FILTER,
+    /* ⚠️ 角色**绝不能休眠**。
+       cannon-es 的休眠判定看的是"速度连续 N 秒低于 sleepSpeedLimit"，
+       站立不动时 velocity≈0 会立刻满足条件 → sleepState=2(SLEEPING)。
+       一旦睡着，body 就不再被积分，我们每帧写进去的 velocity 会被彻底忽略，
+       表现就是"站着不动之后再也走不动"。而且休眠会顺手把 velocity 清零，
+       所以连"先攒速度再释放"的余地都没有。
+       隔离复现：allowSleep=true 时 20 步位移 dz=0.0000，sleepState=2。 */
+    allowSleep: false,
+    sleepSpeedLimit: 0, sleepTimeLimit: 1e9,
+  });
+  body.addShape(shape);
+  body.position.set(0, 3, 5);
+  body.updateMassProperties();
+  world.addBody(body);
+  player.body = body;
+}
+
+/* 玩家移动（相对镜头方向） */
+const keys = {};
+addEventListener('keydown', e => {
+  keys[e.code] = true;
+  if (e.code === 'KeyB') { CFG.MINE_MODE = !CFG.MINE_MODE; Audio.ui(); }
+  if (e.code === 'KeyM') { Audio.setEnabled(!Audio.ready || document.getElementById('sAmmo').textContent === '×'); }
+  if (e.code === 'KeyR') { resetGame(); }
+  if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
+});
+addEventListener('keyup', e => { keys[e.code] = false; });
+
+let camYaw = 0, camPitch = -0.30;
+let mouseDown = false;
+
+addEventListener('mousemove', e => {
+  if (!gameRunning) return;
+  camYaw -= e.movementX * 0.00235;
+  camPitch -= e.movementY * 0.00205;
+  camPitch = Math.max(-1.25, Math.min(0.62, camPitch));
+});
+addEventListener('mousedown', e => { if (e.button === 0) { mouseDown = true; Audio.resume(); } });
+addEventListener('mouseup', e => { if (e.button === 0) mouseDown = false; });
+addEventListener('contextmenu', e => e.preventDefault());
+
+const MOVE_ACC = 78;      // 加速度
+const MAX_SPEED = CFG.SPEED;
+
+/* 朝向解析：把"我朝哪边"统一到一个公式上，显示与逻辑共用。
+   定义 camYaw 为**镜头前方**的水平角，前向量 = (sin, 0, cos)。
+   ─ 玩家盒子默认朝 +Z
+   ─ 炮口 = 从玩家胸口指向"准星命中点"（只用于外观，弹道由 solveShot 解算） */
+function camForward(out) {
+  const cp = Math.cos(camPitch);
+  return out.set(Math.sin(camYaw) * cp, Math.sin(camPitch), Math.cos(camYaw) * cp);
+}
+/* 准星指向的那个世界点。
+   ⚠️ 这里**不**再用"相机前方固定 42 单位"。
+      那个魔法数在两层意义上都是错的：
+        · 42 与真实射程无关，远处的楼永远够不到；
+        · 从相机量 42 和从炮口量 42 差着 11 单位，朝向因此系统性偏平。
+      改成打一条视线射线拿真实命中点（未命中则取远方），
+      与 solveShot() 用的是同一条射线，于是"准星 / 角色朝向 / 弹着点"三者一致。
+
+   ⚠️ hitBuildings 的第一个参数要能提供 `.ray`，且该 `.ray` 必须是 **THREE.Ray**
+      （它内部 `_ray.copy(ray.ray)`，而 `_ray` 是 THREE.Ray）。
+      所以这里必须用 THREE.Raycaster —— **不要**用 CANNON.Ray：
+      一来 cannon 的 Ray 没有 `.update()`（我踩过，直接抛错把 stepSim 打断），
+      二来它的字段是 origin/direction 的 cannon 版，copy 不进去。
+      既有调用点（updateShells 里的 `new THREE.Raycaster(p0, dirN, 0, dist)`）
+      也印证了参数是 Raycaster。 */
+const _aimRay = new THREE.Raycaster();
+const AIM_FAR = 220;
+function screenCenterPoint() {
+  const camDir = camForward(new THREE.Vector3());
+  const eye = camera.position.clone();
+  const far = eye.clone().addScaledVector(camDir, AIM_FAR);
+  /* 建筑还没建好的初始化阶段直接给远点，避免 hitBuildings 空跑 */
+  if (!buildings.length) return far;
+  _aimRay.set(eye, camDir);
+  _aimRay.near = 0;
+  _aimRay.far = AIM_FAR;
+  const hit = hitBuildings(_aimRay, eye, far);
+  return (hit && hit.point) ? hit.point.clone() : far;
+}
+/* 让玩家和炮口一起指向准星方向（纯外观）。
+   以前这里把 camYaw 直接当角色朝向，结果按住 W 时角色被"掰"成侧身/背身，
+   大炮也随之横在身侧 —— 明明在平射，看起来却像歪的。 */
+function faceAimPoint(pt, dt, rate) {
+  if (!player.body) return;              // 同 updatePlayer：身体未就绪时直接跳过外观朝向
+  const bp = player.body.position;
+  const ex = pt.x - bp.x, ez = pt.z - bp.z;
+  const ey = pt.y - (bp.y + 0.35);
+  const horiz = Math.hypot(ex, ez);
+  if (horiz > 0.01) {
+    const wantYaw = Math.atan2(ex, ez);
+    let dy = wantYaw - player.mesh.rotation.y;
+    while (dy > Math.PI) dy -= Math.PI * 2;
+    while (dy < -Math.PI) dy += Math.PI * 2;
+    player.mesh.rotation.y += dy * Math.min(1, rate * dt);
+  }
+  const wantPitch = Math.atan2(ey, Math.max(0.01, horiz));
+  const cg = player.meshParts.cannon;
+  let dp = wantPitch - (-cg.rotation.x);
+  cg.rotation.y = 0;                       // 大炮与身体同步转，不再单独偏转
+  cg.rotation.x += -dp * Math.min(1, rate * dt);
+  cg.rotation.x = Math.max(-0.5, Math.min(0.35, cg.rotation.x));
+}
+
+function updatePlayer(dt, t) {
+  const b = player.body;
+  /* ⚠️ 必须防空。player.body 是 buildPlayer() 里才赋值的，而 buildCity/buildPlayer
+     被包在 requestAnimationFrame → setTimeout 里（为了让 loading 先画一帧）。
+     在那之前的任何一步都可能走到这里：
+       · 玩家手快、loading 还没走完就按键；
+       · 更常见的是外部驱动（无头验证 / 自动化脚本）一读到 __DBG 就调 tick()。
+     不加这道判断，updatePlayer 会抛 TypeError 打断 stepSim，
+     而 stepSim 是推进世界的唯一入口 → 整个游戏静默卡死。
+     （曾经的现场：路网实例统计全 0、地块数 0，看着像"路网构建失败"，
+       实际是构建根本没被执行。） */
+  if (!b) return;
+  /* 兜底：确保角色永远是醒着的。
+     即使某些路径（重置关卡 / 长时间静止）让 body 进入休眠，
+     这里也会把它拉回来 —— 否则本帧写入的 velocity 会被物理引擎忽略。 */
+  if (b.sleepState !== CANNON.Body.AWAKE || b.type !== CANNON.Body.DYNAMIC) {
+    b.type = CANNON.Body.DYNAMIC;
+    b.wakeUp();
+    b.updateMassProperties();
+  }
+  const kb = keys;
+  let ix = 0, iz = 0;
+  if (kb.KeyW || kb.ArrowUp)    iz -= 1;
+  if (kb.KeyS || kb.ArrowDown)  iz += 1;
+  if (kb.KeyA || kb.ArrowLeft)  ix -= 1;
+  if (kb.KeyD || kb.ArrowRight) ix += 1;
+
+  // 把输入转换到世界坐标（相对镜头朝向）
+  const fwd = new THREE.Vector3(Math.sin(camYaw), 0, Math.cos(camYaw));
+  /* ⚠️⚠️ "右"方向这里错过一次，表现为 **A/D 反了**（按 D 往左走）。
+     原来的写法是 (cos yaw, 0, -sin yaw) —— 它在数学上确实是
+     fwd × up 的结果，但**这是左手系的直觉**；Three.js 是右手系：
+     相机看向 +Z（yaw=0）时，屏幕右侧对应的是世界 **-X**。
+     实测（yaw=0）：camera.matrixWorld 的右基向量 = (-1, 0, 0)，
+     而按 D 玩家位移是 dx=+8 —— 方向整好相反。
+
+     正确的"右" = fwd 绕 Y 轴顺时针 90°，
+     即把 (sin y, 0, cos y) 里的 y 换成 y - π/2：
+       right = (sin(y-π/2), 0, cos(y-π/2)) = (-cos y, 0, sin y)
+     验证 yaw=0：right = (-1, 0, 0) ✓ 与相机右基向量一致。 */
+  const right = new THREE.Vector3(-Math.cos(camYaw), 0, Math.sin(camYaw));
+
+  const wish = new THREE.Vector3()
+    .addScaledVector(fwd, -iz)
+    .addScaledVector(right, ix);
+  if (wish.lengthSq() > 0) wish.normalize();
+
+  const sprint = kb.ShiftLeft || kb.ShiftRight;
+  const targetSpeed = sprint ? CFG.SPRINT : MAX_SPEED;
+
+  // 水平速度控制：地面响应快，空中保留约 1/3 控制力（有惯性但不"飘"）
+  const responsive = player.onGround ? 17 : 5.0;
+  const lerpK = Math.min(1, responsive * dt);
+  b.velocity.x += (wish.x * targetSpeed - b.velocity.x) * lerpK;
+  b.velocity.z += (wish.z * targetSpeed - b.velocity.z) * lerpK;
+
+  if (wish.lengthSq() === 0 && player.onGround) {
+    const damp = Math.max(0, 1 - 14 * dt);
+    b.velocity.x *= damp;
+    b.velocity.z *= damp;
+  }
+
+  /* 朝向：始终面向准星方向（不是移动方向）。
+     ─ 这是第三人称射击的标准手感：鼠标指哪、人和炮就朝哪，跟按不按 W 无关。
+     ─ 于是按住 W 时角色是**正对着楼**笔直往前走，而不是侧身螃蟹步。 */
+  faceAimPoint(screenCenterPoint(), dt, 14);
+
+  // 跳跃
+  player.jumpCd -= dt;
+  if ((kb.Space) && player.onGround && player.jumpCd <= 0) {
+    b.velocity.y = CFG.JUMP;
+    player.jumpCd = 0.2;
+    player.onGround = false;
+    Audio.land();
+  }
+  // 二段跳（空中一次）
+  if (kb.Space && !player.onGround && !player._usedAir && player.jumpCd <= 0) {
+    if (kb.Space && t - (player._lastJump || 0) > 0.22) {
+      b.velocity.y = CFG.JUMP * 0.88;
+      player._usedAir = true;
+      player.jumpCd = 0.2;
+      player._lastJump = t;
+      spawnSparks(new THREE.Vector3(b.position.x, b.position.y, b.position.z), 8, 5, 0xaad4ff, 0xffffff);
+    }
+  }
+
+  /* 地面检测：从角色中心向下短距离探测。
+     ⚠️ 这里**不能**设 skipBackfaces:true。
+     地面是一个法线朝上的 Plane，而这条射线是向下走的 —— 它打到的正是
+     平面的背面。开了 skipBackfaces 会把唯一有效的命中过滤掉，
+     结果 onGround 永远为 false（表现为"贴着地面却不停、移动无效"）。 */
+  const from = new CANNON.Vec3(b.position.x, b.position.y, b.position.z);
+  const to = new CANNON.Vec3(b.position.x, b.position.y - (CFG.PLAYER_R + 0.30), b.position.z);
+  const res = new CANNON.RaycastResult();
+  const groundRay = new CANNON.Ray();
+  groundRay.intersectWorld(world, {
+    mode: CANNON.Ray.CLOSEST, from, to,
+    collisionFilterGroup: RAY_GROUP, collisionFilterMask: -1,
+    result: res,
+  });
+  const wasAir = !player.onGround;
+  player.onGround = res.hasHit;
+  if (player.onGround) player._usedAir = false;
+  if (player.onGround && wasAir && b.velocity.y < -6) {
+    Audio.land();
+    spawnDust(new THREE.Vector3(b.position.x, 0.1, b.position.z), 2, 1.0);
+  }
+
+  // 边界约束（用城市真实半宽，不是 CFG.CITY * V —— 那是个量纲错误）
+  const lim = CITY_HALF + 8;
+  b.position.x = Math.max(-lim, Math.min(lim, b.position.x));
+  b.position.z = Math.max(-lim, Math.min(lim, b.position.z));
+
+  // 角色可视位置 = 物理位置 - 半径（脚底）
+  player.mesh.position.set(b.position.x, b.position.y - CFG.PLAYER_R, b.position.z);
+
+  // 走路动画
+  const spd = Math.hypot(b.velocity.x, b.velocity.z);
+  const walkK = Math.min(1, spd / 9);
+  if (walkK > 0.05) {
+    const ph = t * (sprint ? 17 : 12);
+    player.meshParts.legs[0].rotation.x = Math.sin(ph) * 0.72 * walkK;
+    player.meshParts.legs[1].rotation.x = -Math.sin(ph) * 0.72 * walkK;
+    player.mesh.position.y += Math.abs(Math.sin(ph)) * 0.045 * walkK;
+  } else {
+    player.meshParts.legs[0].rotation.x *= 0.85;
+    player.meshParts.legs[1].rotation.x *= 0.85;
+  }
+  if (!player.onGround) {
+    player.meshParts.legs[0].rotation.x = 0.4;
+    player.meshParts.legs[1].rotation.x = -0.32;
+  }
+
+  // 影子盘
+  player.meshParts.disc.position.set(b.position.x, 0.035, b.position.z);
+  const h = Math.max(0, b.position.y - CFG.PLAYER_R);
+  const k = Math.max(0.12, 1 - h / 22);
+  player.meshParts.disc.material.opacity = 0.3 * k;
+  player.meshParts.disc.scale.setScalar(1 + h * 0.06);
+}
+
+/* 实际开一炮：从炮口朝相机瞄准点发射，带后坐力与音效。
+   ⚠️ 抽成独立函数是为了让调试接口（__DBG.fire）走**完全相同的代码路径** ——
+   否则验证脚本测的是另一套逻辑，测过了不代表玩家按左键也能打出来。 */
+/* ══ 弹道解算 ══════════════════════════════════════════════════════════
+   "准星指哪、炮弹落哪"这件事比看上去难，因为有三个点不在一条线上：
+     · camera.position  —— 玩家的眼睛，也是准星的**视线原点**
+     · muzzlePos        —— 炮口，炮弹实际出生点（玩家胸口偏前上方）
+     · 命中点            —— 想让炮弹打到的地方
+   相机在玩家**身后上方**（-sinYaw·D·cosPitch, +CAM_HEIGHT, -cosYaw·D·cosPitch，
+   D=13、CAM_HEIGHT=2.8），而炮口在玩家身上。于是：
+
+     错误做法（旧版）：aimPoint = camPos + camDir·42，再 shootDir = normalize(aimPoint - muzzle)。
+       两个后果：
+       1) **射程被砍**。camPos 到 muzzle 有 ~11.5 单位，所以"相机前 42"在炮口看来
+          只剩 ~30 单位，远处的楼根本够不到。
+       2) **俯仰被摊平**。camPos.y 比 muzzle.y 高 ~4.3，camDir.y=-0.1 时
+          aimPoint.y = camPos.y - 4.2 ≈ muzzle.y —— 算出来 shootDir.y ≈ 0，
+          炮弹几乎是水平打出去的。再加上 SHELL_GRAVITY=-15 的下坠，
+          命中点会比准星低一大截，实测直接扎进地面（y 从 2.0 掉到 0.1）。
+      现象就是"开了炮但 0 摧毁"。
+
+   正确做法（下面）分两步：
+     ① **先用视线打一条射线**，求出准星真正指向的那个世界点 P。
+        从 camera.position 沿 camDir 打，命中建筑就用命中点，否则取远方 220 单位处。
+        ——这一步保证了"准星覆盖的地方"与"炮弹想去的地方"一致。
+     ② **再解炮口 → P 的抛体仰角**。炮口比视线低，且炮弹受重力，
+        所以要把炮口到 P 的位移 (R, Y) 反解成一个带抬升的发射角：
+           在速度 s 固定、重力 g 下，打到水平距离 R、高差 Y 需要
+             tanθ = (s² ± √(s⁴ − g(gR² + 2Ys²))) / (gR)
+           取**低伸弹道**（负根），弹道更平直、更接近准星直觉。
+        当根号内为负（目标超出该初速的最大射程）时退化为直射方向。
+        ——这一步修掉了"水平打出去、扎进地面"的病根。
+
+   ⚠️ 炮口位置要**先沿视线方向推出**再解算，否则炮口贴在玩家身上时
+      R 会被玩家自己挡住（射线起点在体内，第一段就命中自己所在的体素）。 */
+function solveShot() {
+  const camDir = camForward(new THREE.Vector3());
+  const muzzlePos = new THREE.Vector3();
+  player.meshParts.glow.getWorldPosition(muzzlePos);
+
+  /* ① 准星命中点：与 HUD 准星、角色朝向共用 screenCenterPoint()，
+        保证"看到的""站的方向""打出去的"是同一条线。 */
+  const aimPoint = screenCenterPoint();
+
+  /* ② 炮口 → aimPoint 的抛体解算（低伸弹道） */
+  const dx = aimPoint.x - muzzlePos.x;
+  const dy = aimPoint.y - muzzlePos.y;
+  const dz = aimPoint.z - muzzlePos.z;
+  const R = Math.hypot(dx, dz);                 // 水平距离
+  const g = -CFG.SHELL_GRAVITY;                 // 取正值参与公式
+  const s = CFG.SHELL_SPEED;
+
+  let dirV;
+  if (R < 0.4) {
+    dirV = camDir.clone();                      // 目标几乎就在头顶：直接照视线打
+  } else {
+    const disc = s * s * s * s - g * (g * R * R + 2 * dy * s * s);
+    if (disc >= 0) {
+      const tanTheta = (s * s - Math.sqrt(disc)) / (g * R);   // 低伸弹道取负根
+      const theta = Math.atan(tanTheta);
+      dirV = new THREE.Vector3(dx / R * Math.cos(theta), Math.sin(theta), dz / R * Math.cos(theta));
+    } else {
+      /* 超出射程：不硬抬仰角，退回"直指目标"，让炮弹自然下坠落到更近处。 */
+      dirV = new THREE.Vector3(dx, dy, dz).normalize();
+    }
+  }
+  dirV.normalize();
+
+  /* ③ 炮口沿射击方向前移，避免出生点在角色碰撞体内部 */
+  muzzlePos.addScaledVector(dirV, 1.2);
+  return { muzzlePos, dirV, aimPoint };
+}
+
+function tryShoot() {
+  if (!gameRunning) return false;
+  const { muzzlePos, dirV: shootDir } = solveShot();
+  fireShell(muzzlePos, shootDir, CFG.SHELL_SPEED);
+  player.cocd = CFG.COOLDOWN;
+  stats.shots++;
+
+  // 后坐力
+  player.body.velocity.x -= shootDir.x * 1.5;
+  player.body.velocity.z -= shootDir.z * 1.5;
+
+  /* ── 开炮的"手感反馈"四件套 ──
+     全部集中在这里，保证玩家按左键和调试接口调用得到完全一致的表现。 */
+  addShake(0.55);
+  const gl = player.meshParts.glow;
+  gl.material.opacity = 1;                       // 炮口闪光
+  gl.scale.setScalar(1.9);
+  spawnSparks(muzzlePos, 14, 13, 0xfff0a0, 0xff7b2a);
+  spawnDust(muzzlePos, 3, 0.8);
+  Audio.cannon();
+  player.meshParts.cannon.userData.recoil = 0.32;  // 后坐动画
+  return true;
+}
+
+/* 瞄准 & 开炮 */
+function updateAiming(dt) {
+  /* 准星方向的唯一权威来源：屏幕中心。
+     与 updatePlayer 里的角色朝向共用同一函数，二者不可能对不上。 */
+  const aimPt = screenCenterPoint();
+  player.aim.copy(camForward(new THREE.Vector3()));
+
+  /* 炮口朝向：这里只做一次"快速贴合"，让停手时炮口也能立刻精确对准；
+     持续跟随（含角色转身）由 updatePlayer 里的 faceAimPoint 每帧负责。 */
+  faceAimPoint(aimPt, dt, 30);
+
+  // 炮口光晕呼吸
+  const gl = player.meshParts.glow;
+  gl.material.opacity = Math.max(0, gl.material.opacity - dt * 3.2);
+  gl.scale.setScalar(1 + gl.material.opacity * 0.6);
+
+  // 冷却
+  player.cocd -= dt;
+  if (player.cocd < 0) player.cocd = 0;
+
+  if (mouseDown && player.cocd <= 0) tryShoot();
+
+  /* 后坐动画（每帧衰减，放这里而不是开炮瞬间 —— 它需要 dt） */
+  const cg = player.meshParts.cannon;
+  if (cg.userData.recoil > 0) {
+    cg.userData.recoil = Math.max(0, cg.userData.recoil - dt * 3.4);
+    cg.position.z = 0.1 - cg.userData.recoil * 0.42;
+  }
+}
+
+/* ============================== 第三人称镜头 ============================== */
+let camPos = new THREE.Vector3(0, 8, 16);
+/* 调试用：置 true 则本帧不更新镜头（截图时固定机位用）。
+   故意做成独立变量而不是读 __DBG —— 正常运行不该依赖调试对象。 */
+let cameraFreeze = false;
+let frameCount = 0, camUpdateCount = 0, camObstructCount = 0;
+
+/* 镜头防穿墙：从角色往镜头方向做一次"体积"检测。
+   若有实体方块挡在中间，就把镜头拉到障碍物之前。
+   新架构下用网格尺寸算 AABB，并进一步做**逐格实体判定**——
+   这样楼被炸掉一块后镜头能"探"进缺口，而不是整栋楼都算障碍。 */
+/* 防穿墙探测：从 focus 沿"指向镜头"的方向逐点采样，遇到实体格子就把距离收到它前面。
+   这样楼被炸掉一块后镜头能"探"进缺口，而不是整栋楼都算障碍。 */
+function cameraObstacleDistance(focus, dirToCam, maxDist) {
+  const bldCount = buildings.length;
+  if (bldCount === 0) return maxDist;
+
+  /* ⚠️ 采样步长不能写死成 maxDist / CAM_PROBE_N。
+     镜头总偏移长度 = |(-sinYaw*D*cosPitch, CAM_H + D*sinPitch, ...)|
+     ≈ sqrt(13² + 2.8²) ≈ 13.3，所以在俯仰角较大时相机被抬得很高，
+     "从 focus 沿 dirToCam 往外走"这段路程里，**前 5 个采样点全都还在
+     人行道上方**（y 只有 2 米左右），根本碰不到楼 ——
+     结果就是镜头一路穿墙，钻进楼里看"内脏"。
+     改成固定 0.85 单位一格，13.3 的距离上有 16 个采样点，覆盖密得多。 */
+  const step = 0.85;
+  const MARGIN = 0.55;         // 镜头与障碍之间留的余量
+  for (let d = step; d <= maxDist; d += step) {
+    const px = focus.x + dirToCam.x * d;
+    const py = focus.y + dirToCam.y * d;
+    const pz = focus.z + dirToCam.z * d;
+
+    for (let bi = 0; bi < bldCount; bi++) {
+      const b = buildings[bi];
+      if (b.cells <= 0) continue;
+      const x0 = b.wx(0) - V / 2, x1 = b.wx(b.W - 1) + V / 2;
+      const z0 = b.wz(0) - V / 2, z1 = b.wz(b.D - 1) + V / 2;
+      if (px < x0 || px > x1) continue;
+      if (pz < z0 || pz > z1) continue;
+      if (py < 0 || py > b.H * V) continue;
+
+      /* AABB 内 → 逐格确认。若该格已被炸掉，镜头可以穿过去（不会被"空气墙"顶住） */
+      const gx = Math.round((px - b.originX) / V);
+      const gy = Math.round(py / V);
+      const gz = Math.round((pz - b.originZ) / V);
+      if (gx < 0 || gx >= b.W || gy < 0 || gy >= b.H || gz < 0 || gz >= b.D) continue;
+      if (b.grid[b.lidx(gx, gy, gz)] !== 1) continue;
+
+      return Math.max(1.6, d - MARGIN);
+    }
+  }
+  return maxDist;
+}
+
+function updateCamera(dt) {
+  if (!player.body) return;              // 身体未就绪时不摆镜头（否则同样抛错打断帧）
+  const bp = player.body.position;
+  const focus = new THREE.Vector3(bp.x, bp.y + 1.15, bp.z);
+
+  const cp = Math.cos(camPitch), sp = Math.sin(camPitch);
+  /* ── 相机位置（相对 focus 的偏移）─────────────────────────────────────
+     ⚠️ 这里连踩两个坑，都是"看起来对、实测才知道错"的类型，一并记下：
+
+     坑 1（不跟手）：写成 dirToCam = (-sin(camYaw)cp, CAM_H/CAM_D - sp, -cos(camYaw)cp)。
+        那等于说"相机永远在世界的 -X/-Z 一侧"，与 camYaw 只有符号关系，
+        所以鼠标左右转、镜头根本不绕圈。改成用 camYaw 的 sin/cos 定水平方位。
+
+     坑 2（钻到脚底下）：为了"拉远时视线同步抬升"，把高度写成 H + D*sin(pitch)。
+        可 CAM_DIST=13 而 CAM_HEIGHT 只有 2.8 —— pitch=-0.30 时
+        D*sin(pitch) = -3.84，直接把相机拽到 focus **下方 1 米**，
+        镜头等于是从地面以下往上看，画面自然全是贴地的。
+        正确做法：**高度只由 CAM_HEIGHT 决定，与距离无关**；
+        俯仰角只负责让相机"绕到上方/下方"，用 D*sin 会与 H 重复计入。
+
+     现在：
+        水平后退 = CAM_DIST*cos(pitch)   （俯仰越大，相机越贴近头顶）
+        竖直抬高 = CAM_HEIGHT            （恒定，保证永远在 focus 上方） */
+  const offset = new THREE.Vector3(
+    -Math.sin(camYaw) * CFG.CAM_DIST * cp,
+    CFG.CAM_HEIGHT,
+    -Math.cos(camYaw) * CFG.CAM_DIST * cp
+  );
+  const dirToCam = offset.clone().normalize();
+
+  // 防穿墙：按障碍物把有效距离缩短（沿同一条偏移方向按比例缩）
+  const maxDist = offset.length();
+  const dist = cameraObstacleDistance(focus, dirToCam, maxDist);
+  if (dist < maxDist - 0.05) camObstructCount++;
+  offset.multiplyScalar(dist / maxDist);
+
+  const want = new THREE.Vector3(focus.x + offset.x, focus.y + offset.y, focus.z + offset.z);
+  want.y = Math.max(0.55, want.y);
+
+  // 平滑跟随：被墙挤近时用更快的插值（避免"糊在墙里"）
+  const pushing = dist < maxDist - 0.05;
+  const lerpK = 1 - Math.pow(pushing ? 0.0001 : 0.0016, dt);
+  camPos.lerp(want, lerpK);
+  camera.position.copy(camPos);
+
+  // 震动
+  if (camShake > 0) {
+    camShake -= dt * 3.2;
+    const k = Math.max(0, camShake) * camShakeMag;
+    camera.position.x += (Math.random() - .5) * k * 1.5;
+    camera.position.y += (Math.random() - .5) * k * 1.5;
+    camera.position.z += (Math.random() - .5) * k * 1.5;
+    if (camShake <= 0) camShakeMag = 0;
+  }
+
+  /* ── 镜头朝向：**沿 camYaw / camPitch 解析出来的轴向前看** ────────────
+     ⚠️ 两个都会中招的坑，这里一并记下来：
+
+     坑 1：写 camera.lookAt(focus)，焦点就是玩家。
+           相机在玩家"身后 + 上方"，所以"看向玩家"= 向下看！
+           实测俯角：pitch=-0.10 时 -16.3°，pitch=-0.30 时 -25.2°。
+           而开炮方向取的是 camera.getWorldDirection() —— 于是准星指着楼、
+           炮弹却往地上扎。
+
+     坑 2：如果从"已经摆好的相机位置"反推视线方向（focus - camPos），
+           只要相机位置那一项是错的（见上面那个符号错误），
+           视线就会连带错掉，而且是**物理上无法自洽**的那种错：
+           镜头看的方向和它自己相对玩家的位置对不上。
+           这一次就是这么翻车的 —— 远处高楼被俯视了约 30°，近处的东西
+           却被仰视了约 10°，等于相机"自己斜视自己"。
+
+     所以正确做法是：**先解析出 camYaw / camPitch 对应的方向，
+     再让相机看向"自己前方 40 单位处"**（而不是看向玩家）。
+     这样取景方向与准星、弹道三者是同一个数，永远不会分家。 */
+  const aimDir = camForward(new THREE.Vector3());
+  camera.lookAt(
+    camera.position.x + aimDir.x * 40,
+    camera.position.y + aimDir.y * 40,
+    camera.position.z + aimDir.z * 40
+  );
+
+  // 轻微 FOV 变化（速度感）
+  const spd = Math.hypot(player.body.velocity.x, player.body.velocity.z);
+  const wantFov = 62 + Math.min(9, spd * 0.55);
+  camera.fov += (wantFov - camera.fov) * Math.min(1, 5 * dt);
+  camera.updateProjectionMatrix();
+}
+
+/* ============================== HUD 刷新 ============================== */
+const $ = id => document.getElementById(id);
+function refreshHUD() {
+  $('sDestroyed').textContent = stats.destroyed.toLocaleString();
+  $('sScore').textContent = stats.score.toLocaleString();
+}
+let hudTick = 0;
+function updateHUD(dt, fps) {
+  hudTick += dt;
+  if (hudTick < 0.12) return;
+  hudTick = 0;
+
+  $('pFps').textContent = fps.toFixed(0);
+  $('pVox').textContent = totalVoxels.toLocaleString();
+  $('pDyn').textContent = flyCount;
+  $('pBld').textContent = `${stats.buildingsRazed}/${buildings.length}`;
+  const pct = (flyCount / FLY_MAX) * 100;
+  $('pBar').style.width = pct.toFixed(1) + '%';
+  $('pBarWrap').classList.toggle('warn', pct > 72);
+
+  // 剩余时间
+  if (gameRunning) {
+    const left = Math.max(0, CFG.ROUND_TIME - roundTime);
+    const m = Math.floor(left / 60), s = Math.floor(left % 60);
+    $('sTime').textContent = `${m}:${String(s).padStart(2, '0')}`;
+    $('sTime').style.color = left < 30 ? '#ff7a5c' : '';
+  }
+
+  // 冷却条
+  const cdRatio = CFG.COOLDOWN > 0 ? player.cocd / CFG.COOLDOWN : 0;
+  $('cdFill').style.width = ((1 - cdRatio) * 100).toFixed(0) + '%';
+  $('cdText').classList.toggle('on', cdRatio > 0.02);
+  $('crosshair').classList.toggle('snap', cdRatio <= 0.02);
+}
+
+/* ============================== 游戏流程 ============================== */
+let gameRunning = false, gameOver = false, roundTime = 0;
+let lastT = performance.now(), fpsSmooth = 60;
+
+const overlay = document.createElement('div');
+overlay.className = 'overlay';
+overlay.id = 'ovl';
+overlay.innerHTML = `
+  <div class="panel">
+    <h1 id="endTitle">体素拆迁办</h1>
+    <div class="sub">VOXEL DEMOLITION · 第三人称城市轰炸</div>
+    <div class="divider"></div>
+    <div class="keys">
+      <div class="key"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><span>移动</span></div>
+      <div class="key"><kbd>Shift</kbd><span>冲刺</span></div>
+      <div class="key"><kbd>Space</kbd><span>跳跃（空中可再跳一次）</span></div>
+      <div class="key"><kbd>鼠标</kbd><span>转动视角 / 瞄准</span></div>
+      <div class="key"><kbd>左键</kbd><span>开炮（可长按连射）</span></div>
+      <div class="key"><kbd>滚轮</kbd><span>调整镜头远近</span></div>
+      <div class="key"><kbd>R</kbd><span>重新开始</span></div>
+      <div class="key"><kbd>M</kbd><span>静音 / 取消静音</span></div>
+    </div>
+    <div class="divider"></div>
+    <div class="tips">
+      <b>目标</b>：在 3 分钟内尽可能多地摧毁方块。建筑被逐块削掉，碎块会真实飞散、落地堆积，数秒后消散。<br>
+      <b>技巧</b>：打建筑<b>底部承重处</b>能一次掀掉整面墙；瞄准高楼<b>腰部</b>可让上半层整体垮塌。
+    </div>
+    <button class="btn" id="startBtn">进 入 城 市</button>
+  </div>`;
+document.body.appendChild(overlay);
+
+const startBtn = $('startBtn');
+function startGame() {
+  Audio.resume();
+  overlay.classList.add('hidden');
+  gameRunning = true;
+  gameOver = false;
+  roundTime = 0;
+  mouseDown = false;
+  requestLock();
+}
+
+/* 出生点解算：站在"最近的楼"的正面、街区内部、面朝该楼。
+   ⚠️ 这里的 `yaw` 约定必须与 camForward 一致：
+      camForward(yaw) = (sin yaw · cos pitch, sin pitch, cos yaw · cos pitch)
+      所以"面朝方向 (dx,dz) 对应的 yaw" = atan2(dx, dz)。
+      写成 atan2(dz, dx) 会差 90°（我第一版就是这么错的）。
+
+   ⚠️⚠️ 站位方向也很容易搞反。第一版写的是"站在楼心朝原点退 15 单位"
+      —— 那只是在楼和原点之间挪了一点点，落点依旧贴着城市中心，
+      实测 24 个方位还是一栋楼都打不到。
+      正确的做法是**站到楼的外侧**（沿 原点→楼 的方向再往前走）：
+      这样玩家和楼之间没有别的东西，准星正对着它。 */
+function spawnPoint() {
+  let best = null, bestR = Infinity;
+  for (const b of buildings) {
+    if (b.cells <= 0) continue;
+    const r = b.cx * b.cx + b.cz * b.cz;
+    if (r < bestR) { bestR = r; best = b; }
+  }
+  if (!best) return { x: 0, z: 5, yaw: 0 };
+  /* 落点可能正好压到**邻居楼**里（城市很密）。逐圈往外试方位，
+     取第一个"不落在任何楼占地内"的站位。 */
+  const L = Math.hypot(best.cx, best.cz) || 1;
+  const ux = best.cx / L, uz = best.cz / L;      // 原点 → 楼 的单位向量
+  const stand = 16;                              // 站位在楼的**外侧**多远
+  const insideAny = (x, z) => buildings.some(b => {
+    if (b === best || b.cells <= 0) return false;
+    const hx = b.W * V * 0.5 + 1.0, hz = b.D * V * 0.5 + 1.0;
+    return Math.abs(x - b.cx) < hx && Math.abs(z - b.cz) < hz;
+  });
+  const base = Math.atan2(ux, uz);
+  for (let k = 0; k < 24; k++) {
+    /* 先试正外侧，再逐步偏转（±15°、±30°…） */
+    const off = (k === 0) ? 0 : ((k % 2 ? 1 : -1) * Math.ceil(k / 2) * Math.PI / 12);
+    const a = base + off;
+    const x = best.cx + Math.sin(a) * stand;
+    const z = best.cz + Math.cos(a) * stand;
+    if (!insideAny(x, z)) return { x, z, yaw: Math.atan2(best.cx - x, best.cz - z) };
+  }
+  /* 全都被占（理论上不会）：退回原点附近，至少保证有落点 */
+  return { x: 0, z: 5, yaw: 0 };
+}
+startBtn.addEventListener('click', startGame);
+overlay.addEventListener('click', e => {
+  if (gameOver) resetGame();
+});
+addEventListener('click', () => {
+  if (gameRunning && document.pointerLockElement !== renderer.domElement) {
+    requestLock();
+  }
+});
+
+function resetGame() {
+  // 清掉所有碎块
+  for (let i = 0; i < FLY_MAX; i++) {
+    const d = flyData[i];
+    if (d.alive) releaseSlot(d);
+  }
+  freeSlots.length = 0;
+  for (let i = 0; i < FLY_MAX; i++) freeSlots.push(i);
+  flyCount = 0;
+  collapseTrail = [];        // 清掉"还在倒塌中"的楼（builder 已重建，旧引用会失效）
+  collapseDropped = 0;
+  simTime = 0;               // 与 flyCount 同步归零：否则重开局后新碎块的 bornAt
+                             // 会带着上一局的时间戳，年龄算出来是负数 → 永不过期
+
+  /* ⚠️ 回合计时也必须在这里归零。
+     漏掉它的后果非常隐蔽：验证脚本为了把世界推够时间，会调 tick(200)
+     （3.3 秒）好几次，累计超过 ROUND_TIME=180 秒 → stepSim 里触发
+     endGame() + resetGame() → **城市被整栋重建、stats 清零**。
+     表现是探针里连续三炮读到的 destroyed 一模一样（796/796/796）、
+     碎块池永远停在同一个数 —— 看起来像"爆炸没生效"，
+     实际是每炮之间城市都被换了一套新的。 */
+  roundTime = 0;
+
+  // 清掉现有建筑并重建
+  disposeCityMeshes();        // chunk mesh 是全城共享的，统一在这里释放
+                              // （楼的 meshes 数组在分块合并后恒为空，仅兜底）
+  for (const b of buildings) {
+    b.meshes.forEach(m => { scene.remove(m); m.dispose(); });
+  }
+  buildings.length = 0;
+  STATIC_VOX_MAT.length = 0;
+  totalVoxels = 0;
+  buildCity();
+
+  stats.destroyed = 0; stats.score = 0; stats.buildingsRazed = 0;
+  stats.shots = 0; stats.best = 0;
+  roundTime = 0;
+  gameOver = false;
+  gameRunning = false;
+
+  // 复位玩家
+  /* ⚠️ 出生点不能随便挑。原来写死 `(0, 3, 5)` + `camYaw = 0`，
+     而**马路正好沿 x=0 / z=0 铺**，于是玩家站在十字路口正中、
+     面朝一条笔直的空街 —— 实测从出生点扫 24 个方位，**一栋楼都打不到**
+     （0/24）。第一印象就是"这游戏没东西可打/坏了"。
+
+     改成按城市实际布局算：找离原点最近的那栋楼，
+     站在它**正前方偏一点**的位置、面朝它。这样一进游戏准星里就有楼，
+     而且不在马路正中（不会被路网"看穿"）。 */
+  const sp = spawnPoint();
+  player.body.position.set(sp.x, 3, sp.z);
+  player.body.velocity.set(0, 0, 0);
+  camYaw = sp.yaw;
+  /* 初始俯仰 -0.22 —— 实测扫过 dist ∈ {10,12,14,16,20} × pitch ∈ {-0.10…-0.38}
+     的网格：站立距离 16 时，pitch 在 -0.16~-0.38 之间准星都落在楼体上，
+     且 -0.22 打中的是贴近楼底的位置（y≈3.6，最理想的爆点）。
+     原来写 -0.30 会略微朝下，配合更近的站位有落空风险。 */
+  camPitch = -0.22;
+  camPos.set(sp.x + Math.sin(sp.yaw) * -CFG.CAM_DIST, 8,
+             sp.z + Math.cos(sp.yaw) * -CFG.CAM_DIST);
+
+  $('endTitle').textContent = '体素拆迁办';
+  overlay.classList.remove('hidden');
+  overlay.querySelector('.panel').innerHTML = START_PANEL_HTML;
+  const nb = $('startBtn');
+  nb.addEventListener('click', startGame);
+  refreshHUD();
+}
+
+/* 保存起始面板 HTML 用于重置 */
+const START_PANEL_HTML = overlay.querySelector('.panel').innerHTML;
+
+function endGame() {
+  gameRunning = false;
+  gameOver = true;
+  try { document.exitPointerLock && document.exitPointerLock(); } catch (e) {}
+
+  const d = stats.destroyed;
+  let rank = 'D';
+  if (d > 2600) rank = 'S';
+  else if (d > 1600) rank = 'A';
+  else if (d > 900) rank = 'B';
+  else if (d > 400) rank = 'C';
+
+  const razed = stats.buildingsRazed, totalB = buildings.length;
+  overlay.querySelector('.panel').innerHTML = `
+    <h1 id="endTitle">拆迁结束</h1>
+    <div class="sub">DEMOLITION REPORT</div>
+    <div class="divider"></div>
+    <div class="scoreGrid">
+      <div class="scoreCell"><div class="k">摧毁方块</div><div class="n">${d.toLocaleString()}</div></div>
+      <div class="scoreCell"><div class="k">总得分</div><div class="n">${stats.score.toLocaleString()}</div></div>
+      <div class="scoreCell"><div class="k">夷平建筑</div><div class="n">${razed}<small style="font-size:14px;opacity:.5">/${totalB}</small></div></div>
+    </div>
+    <div class="divider"></div>
+    <div style="text-align:center">
+      <div style="font-size:11px;letter-spacing:.2em;color:#6f8cb0;font-weight:700">评级</div>
+      <div id="rank">${rank}</div>
+      <div class="tips" style="margin-top:10px">
+        单次爆炸最多掀掉 <b>${stats.best}</b> 块 · 共开炮 <b>${stats.shots}</b> 发
+        · 平均每发 <b>${stats.shots ? (d / stats.shots).toFixed(1) : 0}</b> 块
+      </div>
+    </div>
+    <button class="btn" id="againBtn">再 来 一 局</button>`;
+  overlay.classList.remove('hidden');
+  $('againBtn').addEventListener('click', resetGame);
+  Audio.ui();
+}
+
+/* 滚轮调镜头 */
+addEventListener('wheel', e => {
+  CFG.CAM_DIST = Math.max(4.5, Math.min(16, CFG.CAM_DIST + Math.sign(e.deltaY) * 0.75));
+}, { passive: true });
+
+/* ============================== 主循环 ============================== */
+const clock = new THREE.Clock();
+const FIXED_DT = 1 / 60;      // 物理固定步长
+let physAcc = 0;              // 物理时间累加器
+/* 单帧的"模拟部分"：物理 + 各子系统 + 镜头。
+   抽出来是为了让 __DBG.tick(n) 能同步推进 —— headless 软件渲染只有 ~1 FPS，
+   "等 800ms 再断言"这种测法每次都读到同一帧，根本测不出东西。
+   loop() 和 __DBG.tick 共用这一段，验证的不可能是两套逻辑。 */
+function stepSim(dt, t) {
+  /* 模拟时间（毫秒）：只随 dt 前进，与挂钟解耦。
+     碎块寿命等"按秒计"的逻辑都该用它，而不是 performance.now()。 */
+  simTime += dt * 1000;
+
+  if (gameRunning) {
+    roundTime += dt;
+    if (roundTime >= CFG.ROUND_TIME) endGame();
+  }
+
+  /* 物理步进：自己做 accumulator + 固定步长。
+     不用 world.step(dt, elapsed, maxSub) 的插值模式 —— 该模式内部有
+     `if (performance.now()-t0 > dt*1000) break` 的"掉帧即放弃"逻辑，
+     在低端机 / 软件渲染下会导致物理几乎不推进（表现为角色悬空不落地）。
+     自己累加则时间永远是向前推进的，掉帧只是变慢，不会卡死。 */
+  physAcc += dt;
+  let steps = 0;
+  while (physAcc >= FIXED_DT && steps < 4) {
+    world.step(FIXED_DT);
+    physAcc -= FIXED_DT;
+    steps++;
+  }
+  if (steps === 0) world.step(FIXED_DT);   // 高帧率时也保证每帧推进一步
+  if (physAcc > FIXED_DT * 6) physAcc = 0; // 长时间挂起后不要"追帧"爆炸
+
+  updatePlayer(dt, t);
+  updateAiming(dt);
+  updateShells(dt, (point, vel) => explode(point, vel));
+  collapsePump();                     // 结构坍塌余波：把还在坠落的楼继续放下一层
+  updateDebris(dt);
+  updateShocks(dt);
+  updateSparks(dt);
+  updateDust(dt);
+  updateHitmarker(dt);
+  /* ⚠️ 这里只认模块内的 cameraFreeze。
+     曾经写成 `!window.__DBG || !__DBG.FREEZE` —— 而 __DBG 是在 loop() 启动
+     **之后**才赋值的，于是前几帧 !window.__DBG 为真、updateCamera 被整段跳过；
+     更糟的是它把"调试开关"和"正常运行"绑在了一起：任何一次顺序调整
+     都会让镜头彻底不更新（画面永远是初始那个(0,8,16)的角度）。
+     现在用独立的布尔量，运行路径不依赖调试对象是否存在。 */
+  if (!cameraFreeze) { camUpdateCount++; updateCamera(dt); }
+}
+
+function loop() {
+  requestAnimationFrame(loop);
+  frameCount++;
+
+  const now = performance.now();
+  let dt = (now - lastT) / 1000;
+  lastT = now;
+  dt = Math.min(dt, 0.05);              // 防止切标签页后爆炸
+  fpsSmooth += ((1 / Math.max(dt, 0.0001)) - fpsSmooth) * 0.1;
+
+  stepSim(dt, now / 1000);
+
+  // 闪光衰减
+  if (flashT > 0) {
+    flashT -= dt * 6.5;
+    flashEl.style.opacity = String(Math.max(0, flashT) * 0.5);
+  } else if (flashEl.style.opacity !== '0') {
+    flashEl.style.opacity = '0';
+  }
+
+  // 光晕重置
+  updateHUD(dt, fpsSmooth);
+
+  /* ── 每帧渲染前的两项性能开关 ──
+     1) 阴影相机跟随玩家：只保证玩家视距内有阴影，远处的楼不进 shadow pass。
+        位置对齐到体素网格（round），否则 shadow map 随玩家移动会采样闪烁。
+     2) chunk 视锥剔除：相机背后的 chunk 整块不画（主 pass 和阴影 pass 都省）。 */
+  if (player && player.body) {
+    const p = player.body.position;
+    const sx = Math.round(p.x / V) * V, sz = Math.round(p.z / V) * V;
+    sun.position.set(sx + SUN_DIR.x * 120, SUN_DIR.y * 120, sz + SUN_DIR.z * 120);
+    sun.target.position.set(sx, 0, sz);
+    sun.target.updateMatrixWorld();
+  }
+  updateChunkVisibility();
+
+  renderer.render(scene, camera);
+}
+
+/* ============================== 启动 ============================== */
+const loadEl = $('loading');
+const loadText = $('loadText');
+loadText.textContent = '正在生成城市…';
+
+// 延一帧让 loading 先渲染出来
+requestAnimationFrame(() => {
+  setTimeout(() => {
+    buildCity();
+    buildPlayer();
+    loadText.textContent = '准备就绪';
+    refreshHUD();
+    setTimeout(() => {
+      loadEl.classList.add('hidden');
+      player.body.position.set(0, 3, 5);
+      loop();
+    }, 180);
+  }, 60);
+});
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+/* 供调试用 */
+window.__DBG = {
+  scene, world, buildings, flyData, stats, CFG, explode, spawnDebris, camera,
+  THREE, CANNON, groundRay: () => new CANNON.Ray(),
+  /* ⚠️ detachVoxel 必须暴露：它是"格 → 碎块"的唯一出口，
+     验证"摘掉 N 格 ⇔ 生成 N 个碎块"这条不变式时，要能绕开 explode
+     逐格调用它，才能把"爆炸逻辑"和"命中收集逻辑"分开单独看。 */
+  detachVoxel,
+  /* 准星命中点 + 弹道解算，供验证脚本核对"瞄准线==弹道线" */
+  screenCenterPoint,
+  solveShot,
+  /* 结构坍塌：直接调一次（验证脚本用；explode 内部也会调） */
+  collapseCheck, collapsePump, supportOf, dropFrom,
+  /* 连通性模型（"中间断开 → 上方悬空块掉落"）：
+     验证时要能把两个模型**分开**测 —— 单独调 collapseFloating 看它
+     摘了多少格，再单独调 supportOf 看承重有没有被误触发。
+     混在一起调 collapseCheck 的话，一个模型的工作会被另一个掩盖。 */
+  collapseFloating, floatingCells, groundedMask, releaseFloating,
+  /* 承重阈值：验证脚本要能读到"判定线"，而不是自己写死 0.55 */
+  SUPPORT: () => ({ GROUND_FLOOR, SUPPORT_THRESH, SUPPORT_RATIO, ROUND_CAP: COLLAPSE_ROUND_CAP }),
+  /* 派生量：验证脚本要能拿到"实际生效的冲量"，而不是自己再算一遍。
+     ⚠️ 这里**没有 K_V** —— 碎块速度压根不随体素尺寸缩放（见文件顶部的
+        "质量口径"注释）。把已经删掉的符号写进这个返回对象，会让整个
+        consts() 抛 ReferenceError，而 CDP 那侧只会读到一个 "Uncaught"，
+        看不到是哪一行 —— 排查一次要花十分钟。 */
+  consts: () => ({ V, BLAST_PUSH, COLLAPSE_EXIT, BLAST_R: CFG.BLAST_R }),
+  setYaw: (y) => { camYaw = y; },
+  setPitch: (p) => { camPitch = p; },
+  getYaw: () => camYaw,
+  camPitchOf: () => camPitch,
+  player,
+  fly: flyData,                       // 便于验证脚本统计在场碎块
+  /* 模拟时间（秒）。碎块的 bornAt / settleAt 都是这个口径的毫秒值，
+     验证"落定后 RESLIDER 秒才淡出"必须能读到它 ——
+     否则只能靠 tick 次数反推，而 tick 每次推进的步长是可变的，
+     推出的时间会带上累计误差，断言"落地后 2.6 秒还在"就不可靠。 */
+  simTime: () => simTime / 1000,
+
+  /* 渲染统计（性能验证用）：draw call / 三角形数 / 可见 chunk 数。
+     数值与机器无关，headless 前后对比可信。 */
+  rendererInfo: () => ({
+    ...renderer.info.render,
+    chunksTotal: CHUNKS.length,
+    chunksVisible: CHUNKS.filter(c => c.im.visible).length,
+    staticVoxels: totalVoxels,
+    flyAlive: flyCount,
+  }),
+  /* 生成期修补了多少个悬空壳格（把它接到地面上）。调试/自检用。 */
+  buildRepairs: () => BUILD_REPAIRS,
+  shells,                             // 炮弹状态（追踪弹道用）
+  hitBuildings,                       // 射线命中测试（单测弹道用）
+  /* 触发一次开炮（走和真实点击完全相同的代码路径）
+     ⚠️ 返回值要能区分"打出去了"和"被前置条件挡下了"。
+        原来无论哪种都 return true，验证脚本看到 true 就以为命中测试通过，
+        实际是 gameRunning=false 时 tryShoot 直接 return 了 —— 假通过。 */
+  fire: () => {
+    if (!gameRunning) return { ok: false, why: 'not_running' };
+    if (player.cocd > 0) return { ok: false, why: 'cooldown' };
+    try { tryShoot(); return { ok: true, shots: stats.shots }; }
+    catch (e) { return { ok: false, why: String(e) }; }
+  },
+
+  /* 进入游戏中。startGame 在模块作用域里，外部 eval 够不到，
+     所以必须从这里转出去 —— 否则验证脚本永远处于"没开局"状态，
+     开炮统计恒为 0。顺带把遮罩藏掉、指针锁跳过（headless 下拿不到锁）。 */
+  start: () => {
+    if (gameRunning) return { ok: true, already: true };
+    try {
+      startGame();
+      gameRunning = true;
+      overlay.classList.add('hidden');
+      return { ok: true, gameRunning };
+    } catch (e) { return { ok: false, why: String(e) }; }
+  },
+  setRunning: (v) => { gameRunning = !!v; return gameRunning; },
+
+  /* ── 验证用的隔离原语 ──────────────────────────────────────────────
+     ⚠️ 每节测试之间必须能"把世界恢复到一个干净状态"，否则后面的测试会被
+        前面的残留污染 —— 这不是理论问题，本次就踩了两次：
+          · 池子里还躺着上一节炸出来的 1500+ 块碎块 → 坍塌那轮
+            dropFrom 被剩余容量卡住，一格都摘不下来，
+            看起来像"坍塌坏了"，实际是碎块池满了。
+          · 旧碎块在 9 秒寿命里持续补给 → 生命周期测试的"在场数"
+            从 t0 到 t16s 几乎不动，像回收失效。
+
+     clearDebris() —— 立即回收全部碎块（不等寿命自然过期）。
+       ⚠️ releaseSlot 自己会 push 回 freeSlots，所以这里**不能**再遍历补一遍，
+          否则 freeSlots 里全是重复下标，spawnDebris 的 pop() 会拿到
+          已被占用的槽位 —— 表现为"新碎块刚生成就被上一块覆盖"。
+       碎块池与 grid 是两套独立状态，所以这个操作安全：
+       建筑结构不受影响，可以继续测爆炸/坍塌。
+
+     rebuild() —— 重建整座城市（楼体、材质、统计、碎块池全部归零）。
+       代价是几十毫秒，但对"需要一栋从未被碰过的楼"的测试
+       （比如负向对照）来说这是唯一可靠的办法 —— 靠 cells/frac
+       去"猜哪栋还完好"会被前面任意一节测试推翻。 */
+  clearDebris: () => {
+    let n = 0;
+    for (let i = 0; i < FLY_MAX; i++) if (flyData[i].alive) { releaseSlot(flyData[i]); n++; }
+    return n;
+  },
+  /* ⚠️ rebuild() 会把世界恢复成"未开局"状态（重置面板 + gameRunning=false），
+     这在验证脚本里是致命的：后面所有 __DBG.fire() 都会被
+     tryShoot 的 `if (!gameRunning) return` 静默挡掉，读数恒为 0，
+     看起来像"操作/相机全坏了"，实际只是没回到游戏中。
+     这里显式地补一次 start 语义 —— 不调 startGame()（它带 UI 动画和
+     requestAnimationFrame 延迟），只做验证需要的那两件事。 */
+  rebuild: () => {
+    resetGame();
+    gameRunning = true;
+    gameOver = false;
+    overlay.classList.add('hidden');
+    return { blds: buildings.length, voxels: totalVoxels, running: gameRunning };
+  },
+
+  /* ── 输入注入：验证脚本要用 ─────────────────────────────────────────
+     ⚠️ 不要用 dispatchEvent(new KeyboardEvent(...))：脚本里这样发出来的
+        事件在部分环境下不会可靠地送达 window 监听器（本次实测就是
+        keydown 收不到，位移一直是 0，白折腾一轮）。
+        直接从内部改 keys 表，等价于"按键被按住"，而且是确定性的。 */
+  key: (code, down) => { keys[code] = !!down; return keys[code]; },
+  clearKeys: () => { for (const k in keys) keys[k] = false; },
+  keysDump: () => Object.keys(keys).filter(k => keys[k]),
+
+  /* 固定机位（截图 / 上帝视角用）；运行路径不读这个变量 */
+  setFreeze: (v) => { cameraFreeze = !!v; return cameraFreeze; },
+
+  /* 运行健康度：帧数 / 镜头更新次数 / 当前镜头内部值。
+     排查"镜头不跟手"时，先看这两个计数是否在涨 —— 涨 = 循环在跑，
+     再看 camObstruct 是不是把距离压到了下限。 */
+  health: () => ({
+    frames: frameCount, camUpdates: camUpdateCount, camObstruct: camObstructCount,
+    camPos: { x: +camPos.x.toFixed(2), y: +camPos.y.toFixed(2), z: +camPos.z.toFixed(2) },
+    cameraPos: { x: +camera.position.x.toFixed(2), y: +camera.position.y.toFixed(2),
+                 z: +camera.position.z.toFixed(2) },
+    gameRunning, cameraFreeze, roundTime: +roundTime.toFixed(1),
+    /* ready：城市与玩家都已经建好、世界真正可推进。
+       ⚠️ __DBG 是在模块顶层立刻赋值的，而 buildCity/buildPlayer 要等
+       requestAnimationFrame → setTimeout（约 60+180 ms）。两者之间有个窗口，
+       外部脚本在这段时间里调 tick() 会推进一个"玩家还没出生"的世界。
+       所有断言都应该先等 ready 为 true。 */
+    ready: !!player.body && buildings.length > 0,
+    /* 体素/建筑规模：改 V 之后最该先看的就是这几个数 ——
+       "楼盖出来了但只有 3 格宽"这种问题，看一眼 voxels/bld 就露馅。 */
+    voxels: totalVoxels,
+    blds: buildings.length,
+    flySlots: freeSlots.length,
+    collapseDropped, collapseTrail: collapseTrail.length,
+    player: player.body ? {
+      x: +player.body.position.x.toFixed(2), y: +player.body.position.y.toFixed(2),
+      z: +player.body.position.z.toFixed(2)
+    } : null,
+  }),
+
+  /* ── 确定性推进：软件渲染下 headless 只有 ~1 FPS，任何"等 N 毫秒再看结果"
+        的断言都不可靠。这个函数直接同步跑 N 次循环体，让物理与镜头
+        按固定步长前进，验证结果就与真实帧率无关了。
+        ⚠️ 必须传参进去，不能在内部读 lastT —— 否则第一次 dt 会大到被
+           clamp 成 0.05，几步就把角色推到天上去。 */
+  tick: (n, step) => {
+    /* 未就绪就直接返回，不推进。
+       这里必须"静默不动"而不是"尽力推进"：世界还没建好时推了几帧，
+       后面所有基于位移/计数的断言都会带上这段无效历史，很难查。 */
+    const ready = !!player.body && buildings.length > 0;
+    if (!ready) return { frames: frameCount, camUpdates: camUpdateCount, ready: false };
+    const dt = step || 1 / 60;
+    for (let i = 0; i < (n || 1); i++) stepSim(dt, performance.now() / 1000);
+    return { frames: frameCount, camUpdates: camUpdateCount, ready: true };
+  },
+
+  /* ── 自检：这台"相机与炮口方向"到底对不对 ────────────────────────────
+     起因是炮弹打不到楼，怀疑相机朝向与弹道不一致。
+     与其靠人眼争论符号，不如让它自己算一遍、跑一遍、对答案。
+
+     A) dirVsYaw  —— 相机前向量是否等于 yaw 的指向。
+        若夹角 ≈ 180°，说明 yaw 与镜头是反向的。
+
+     B) verifyAim() —— 真开一炮，取炮弹当前方向，与相机方向比点积。
+
+     C) projOnScreen() —— 把世界点投影到屏幕，返回归一化坐标。
+        0.5/0.5 就是准星中心。用来确认"准星中心 == 弹着点"。 */
+  dirVsYaw: () => {
+    const d = new THREE.Vector3(); camera.getWorldDirection(d);
+    const yawDir = new THREE.Vector3(Math.sin(camYaw), 0, Math.cos(camYaw));
+    return {
+      camDir: { x: +d.x.toFixed(3), y: +d.y.toFixed(3), z: +d.z.toFixed(3) },
+      camPos: { x: +camera.position.x.toFixed(2), y: +camera.position.y.toFixed(2),
+                z: +camera.position.z.toFixed(2) },
+      camYaw: +camYaw.toFixed(4), camPitch: +camPitch.toFixed(4),
+      /* 相机水平朝向与 yaw 的夹角（度）：0 = 同向，±180 = 反向 */
+      dirVsYawDeg: +(Math.atan2(d.x, d.z) - Math.atan2(yawDir.x, yawDir.z))
+        * 180 / Math.PI,
+      /* 相机俯角（度）；应当 ≈ camPitch 的度数 */
+      camPitchActualDeg: +(Math.asin(d.y) * 180 / Math.PI).toFixed(2),
+      camPitchWantDeg: +(camPitch * 180 / Math.PI).toFixed(2),
+      pitchErrDeg: +((Math.asin(d.y) - camPitch) * 180 / Math.PI).toFixed(2),
+      camDotYaw: +d.dot(yawDir).toFixed(4),
+      /* 玩家朝向 vs 镜头朝向（度差）—— 应当 ≈ 0 */
+      playerFaceVsCamDeg: +(Math.atan2(Math.sin(player.mesh.rotation.y),
+        Math.cos(player.mesh.rotation.y)) - Math.atan2(d.x, d.z)) * 180 / Math.PI,
+    };
+  },
+  projOnScreen: (x, y, z) => {
+    const v = new THREE.Vector3(x, y, z).project(camera);
+    return { sx: +((v.x + 1) / 2).toFixed(3), sy: +((1 - v.y) / 2).toFixed(3),
+             depth: +v.z.toFixed(3), inFront: v.z < 1 };
+  },
+  /* 真开炮 → 记录弹道方向与相机方向的一致性 */
+  verifyAim: () => {
+    if (!tryShoot()) return null;
+    const d = new THREE.Vector3(); camera.getWorldDirection(d);
+    const aim = screenCenterPoint();
+    return new Promise(res => {
+      const samples = []; let n = 0;
+      const step = () => {
+        const sh = shells.find(s => s.alive);
+        if (sh) samples.push({
+          y: +sh.pos.y.toFixed(3),
+          dir: { x: +sh.dir.x.toFixed(4), y: +sh.dir.y.toFixed(4), z: +sh.dir.z.toFixed(4) },
+          dot: +sh.dir.dot(d).toFixed(4),
+        });
+        if (++n < 30 && shells.some(s => s.alive)) setTimeout(step, 10);
+        else res({
+          aimPoint: { x: +aim.x.toFixed(2), y: +aim.y.toFixed(2), z: +aim.z.toFixed(2) },
+          camDir: { x: +d.x.toFixed(3), y: +d.y.toFixed(3), z: +d.z.toFixed(3) },
+          camPitch: +camPitch.toFixed(4),
+          samples: samples.slice(0, 4), sampleCount: samples.length,
+        });
+      };
+      setTimeout(step, 10);
+    });
+  },
+};
+
+};
+</script>
+</body>
+</html>
